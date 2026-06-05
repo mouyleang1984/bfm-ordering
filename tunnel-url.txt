@@ -1,1 +1,1 @@
-https://test.trycloudflare.com
+https://eng-points-resource-redeem.trycloudflare.com
