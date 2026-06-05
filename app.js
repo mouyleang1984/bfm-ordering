@@ -203,12 +203,10 @@ function SetupScreen({ onConnect, onSkip }) {
       return;
     }
 
-    // Loaded from Netlify — fetch latest tunnel URL from Netlify Blobs (POS pushes here on startup)
-    const BLOB_URL = 'https://api.netlify.com/api/v1/blobs/4f047426-4495-4af5-89c1-18f3e28c86f7/tunnel/pos_url';
-    const BLOB_TOKEN = 'nfp_o3EDTBkmnvMjCyawFKGUsCEEwAkCRZU951eb';
-    fetch(BLOB_URL, {
+    // Auto-connect: read tunnel URL from GitHub (CORS-safe, updated by POS on startup)
+    const REGISTRY_URL = 'https://raw.githubusercontent.com/mouyleang1984/bfm-ordering/main/tunnel-url.txt';
+    fetch(REGISTRY_URL + '?t=' + Date.now(), {
       cache: 'no-store',
-      headers: { 'Authorization': 'Bearer ' + BLOB_TOKEN },
       signal: AbortSignal.timeout(6000)
     })
       .then(async r => {
