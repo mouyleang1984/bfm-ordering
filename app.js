@@ -1047,23 +1047,49 @@ function App() {
   // Load menu from POS
   const loadMenu = useCallback(async () => {
     // posUrl can be '' (same-origin relative) or full URL
-    // We use null check differently — only skip if undefined/null, not empty string
     if (posUrl === null || posUrl === undefined) return;
     setLoading(true); setMenuErr('');
-    const base = posUrl || '';  // '' = same-origin (relative paths)
-    try {
+
+    // Helper: try fetching menu+store-info from a given base URL
+    const tryFetch = async (base) => {
       const [mr, sr] = await Promise.allSettled([
-        posFetch(`${base}/menu`,    { signal: AbortSignal.timeout(8000) }),
+        posFetch(`${base}/menu`,       { signal: AbortSignal.timeout(8000) }),
         posFetch(`${base}/store-info`, { signal: AbortSignal.timeout(5000) }),
       ]);
-      if (mr.status === 'fulfilled' && mr.value.ok) {
-        setMenu(mr.value);
-        if (mr.value.categories?.length) setActiveCat(mr.value.categories[0].id);
-      } else {
-        setMenuErr(mr.status === 'rejected' ? (mr.reason?.message || 'POS not running — start the POS app') : mr.value?.error || 'Failed to load menu');
-      }
-      if (sr.status === 'fulfilled' && sr.value.ok) setStoreInfo(sr.value);
-    } catch (e) { setMenuErr(e.message); }
+      return { mr, sr };
+    };
+
+    let base = posUrl || '';
+    let { mr, sr } = await tryFetch(base);
+
+    // If failed AND we're on GitHub Pages, silently try the latest tunnel URL from GitHub
+    const isGHPages = window.location.origin.includes('github.io');
+    if (isGHPages && (mr.status === 'rejected' || !mr.value?.ok)) {
+      try {
+        const reg = await fetch('https://raw.githubusercontent.com/mouyleang1984/bfm-ordering/main/tunnel-url.txt?t=' + Date.now(), { cache: 'no-store', signal: AbortSignal.timeout(5000) });
+        if (reg.ok) {
+          const freshUrl = (await reg.text()).trim();
+          if (freshUrl && freshUrl.startsWith('https://') && freshUrl !== posUrl) {
+            console.log('[App] Stale URL — retrying with fresh tunnel:', freshUrl);
+            const retry = await tryFetch(freshUrl);
+            if (retry.mr.status === 'fulfilled' && retry.mr.value?.ok) {
+              setPosUrl(freshUrl);   // update localStorage
+              base = freshUrl;
+              mr   = retry.mr;
+              sr   = retry.sr;
+            }
+          }
+        }
+      } catch(_) {}
+    }
+
+    if (mr.status === 'fulfilled' && mr.value.ok) {
+      setMenu(mr.value);
+      if (mr.value.categories?.length) setActiveCat(mr.value.categories[0].id);
+    } else {
+      setMenuErr(mr.status === 'rejected' ? (mr.reason?.message || 'POS is not running. Start the POS app and try again.') : mr.value?.error || 'Failed to load menu');
+    }
+    if (sr.status === 'fulfilled' && sr.value.ok) setStoreInfo(sr.value);
     setLoading(false);
   }, [posUrl]);
 
@@ -1172,7 +1198,8 @@ function App() {
             <div style={{ fontWeight:700, fontSize:18, color:'#c62828', marginBottom:8 }}>Couldn't reach POS</div>
             <div style={{ color:'#555', fontSize:14, marginBottom:20 }}>{menuError}</div>
             <div style={{ display:'flex', gap:10, justifyContent:'center', flexWrap:'wrap' }}>
-              <button className="btn btn-primary" onClick={loadMenu}>Retry</button>
+              <button className="btn btn-primary" onClick={() => { setPosUrl(null); }}>Auto-Reconnect</button>
+              <button className="btn btn-outline" onClick={loadMenu}>Retry</button>
               <button className="btn btn-outline" onClick={useDemo}>Use Demo Menu</button>
               <button className="btn btn-gray" onClick={() => { setPosUrl(''); setIsDemo(false); }}>Change POS URL</button>
             </div>
