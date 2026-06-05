@@ -12,8 +12,8 @@ const CONFIG = {
   accentColor:  '#c8102e',
   logoEmoji:    '🛒',
   taxRate:      0.08,
-  // Your Netlify function endpoint (auto-resolved)
-  checkoutApi:  '/api/create-checkout',
+  // Checkout API — built dynamically from posUrl at call time
+  checkoutApi:  null,
 };
 
 // Safe POS fetch — detects localtunnel HTML error pages
@@ -785,9 +785,13 @@ function CheckoutFlow({ cart, posUrl, isDemo, onClose }) {
       return;
     }
     try {
-      const res = await fetch(CONFIG.checkoutApi, {
+      // Build absolute checkout URL from connected POS tunnel URL
+      const checkoutUrl = (posUrl && posUrl.startsWith('http'))
+        ? `${posUrl}/api/create-checkout`
+        : `${window.location.origin}/api/create-checkout`;
+      const res = await fetch(checkoutUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'bypass-tunnel-reminder': 'true' },
         body: JSON.stringify({
           cart: cart.map(i => ({
             name:       i.name,
