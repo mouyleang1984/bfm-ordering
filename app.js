@@ -9,7 +9,7 @@ const { useState, useEffect, useCallback, useRef, useMemo } = React;
 const CONFIG = {
   storeName:    'Rice Plus Grill',
   storeTagline: 'Authentic rice dishes, crafted your way. 🍚',
-  accentColor:  '#16a34a',
+  accentColor:  '#c8102e',
   logoEmoji:    '🍚',
   taxRate:      0.08,
   // Checkout API — built dynamically from posUrl at call time
@@ -245,8 +245,7 @@ function SetupScreen({ onConnect, onSkip }) {
       <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', padding:20,
         background:'linear-gradient(135deg, #c8102e 0%, #8b0000 100%)' }}>
         <div style={{ width:'100%', maxWidth:400, background:'#fff', borderRadius:20, padding:48, boxShadow:'0 20px 60px rgba(0,0,0,.25)', textAlign:'center' }}>
-          <div style={{ fontSize:64, marginBottom:12 }}>{CONFIG.logoEmoji}</div>
-          <h1 style={{ fontSize:24, fontWeight:900, color:CONFIG.accentColor, marginBottom:8 }}>{CONFIG.storeName}</h1>
+          <img src="logo.png" alt="Rice Plus Grill" style={{ width:180, marginBottom:8, borderRadius:12 }} />
           <div style={{ fontSize:36, marginBottom:12, animation:'spin 1.5s linear infinite' }}>🔄</div>
           <p style={{ fontSize:16, fontWeight:700, color:'#333', margin:0 }}>Connecting to POS…</p>
           <p style={{ fontSize:13, color:'#888', marginTop:6 }}>Finding your store automatically</p>
@@ -260,8 +259,7 @@ function SetupScreen({ onConnect, onSkip }) {
       background:'linear-gradient(135deg, #c8102e 0%, #8b0000 100%)' }}>
       <div style={{ width:'100%', maxWidth:480, background:'#fff', borderRadius:20, padding:40, boxShadow:'0 20px 60px rgba(0,0,0,.25)', animation:'slideUp .4s ease' }}>
         <div style={{ textAlign:'center', marginBottom:28 }}>
-          <div style={{ fontSize:64, marginBottom:8 }}>{CONFIG.logoEmoji}</div>
-          <h1 style={{ fontSize:26, fontWeight:900, color:CONFIG.accentColor }}>{CONFIG.storeName}</h1>
+          <img src="logo.png" alt="Rice Plus Grill" style={{ width:160, marginBottom:8, borderRadius:12 }} />
           <p style={{ color:'#666', marginTop:4, fontSize:15 }}>Connect your POS to start taking orders</p>
         </div>
 
@@ -309,7 +307,7 @@ function Header({ storeName, storeHours, cartCount, cartTotal, onCartOpen, searc
       <div style={{ maxWidth:1100, margin:'0 auto', padding:'0 20px', height:64, display:'flex', alignItems:'center', gap:16 }}>
         {/* Brand */}
         <div style={{ display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
-          <span style={{ fontSize:28 }}>{CONFIG.logoEmoji}</span>
+          <img src="logo.png" alt="Rice Plus Grill" style={{ height:42, borderRadius:6 }} />
           <div>
             <div style={{ fontWeight:900, fontSize:17, lineHeight:1.1 }}>{storeName}</div>
             {storeHours && <div style={{ fontSize:11, opacity:.8 }}>{storeHours}</div>}
