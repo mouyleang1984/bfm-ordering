@@ -1,41 +1,30 @@
 // ════════════════════════════════════════════════════════════════════════════
-// Rice Plus Grill — Online Ordering App
-// Self-contained, no build step, deploys to Netlify via drag & drop
+// Rice Plus Grill — Online Ordering (Wawa-style layout)
 // ════════════════════════════════════════════════════════════════════════════
-
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 const CONFIG = {
   storeName:    'Rice Plus Grill',
-  storeTagline: 'Authentic rice dishes, crafted your way. 🍚',
+  storeTagline: 'Fresh food, made your way.',
   accentColor:  '#c8102e',
   logoEmoji:    '🍚',
   taxRate:      0.08,
-  // Checkout API — built dynamically from posUrl at call time
   checkoutApi:  null,
 };
 
-// Safe POS fetch — detects localtunnel HTML error pages
 async function posFetch(url, opts = {}) {
   const headers = { 'bypass-tunnel-reminder': 'true', ...(opts.headers || {}) };
   const r = await fetch(url, { ...opts, headers });
   const text = await r.text();
-  if (text.trim().startsWith('<')) {
-    // Got HTML — tunnel is up but POS isn't running yet
-    throw new Error('POS is not running. Start the POS app and try again.');
-  }
-  try {
-    return JSON.parse(text);
-  } catch(e) {
-    throw new Error('POS returned invalid response. Make sure the POS is running.');
-  }
+  if (text.trim().startsWith('<')) throw new Error('POS is not running. Start the POS app and try again.');
+  try { return JSON.parse(text); }
+  catch(e) { throw new Error('POS returned invalid response.'); }
 }
 
-// Parse URL params (Stripe redirects back here)
 const PARAMS = new URLSearchParams(window.location.search);
 
-// ── UTILITY ────────────────────────────────────────────────────────────────────
+// ── UTILITIES ─────────────────────────────────────────────────────────────────
 function toast(msg, type = 'info', ms = 3000) {
   const el = document.createElement('div');
   el.className = `toast ${type}`;
@@ -43,115 +32,51 @@ function toast(msg, type = 'info', ms = 3000) {
   document.getElementById('toast-area').appendChild(el);
   setTimeout(() => el.remove(), ms);
 }
-
-function useLocalStorage(key, defaultValue) {
-  const [value, setValue] = useState(() => {
-    try {
-      const stored = localStorage.getItem(key);
-      return stored ? JSON.parse(stored) : defaultValue;
-    } catch { return defaultValue; }
-  });
-  const set = useCallback((v) => {
-    const next = typeof v === 'function' ? v(value) : v;
-    setValue(next);
-    try { localStorage.setItem(key, JSON.stringify(next)); } catch {}
-  }, [key, value]);
-  return [value, set];
+function useLocalStorage(key, def) {
+  const [v, setV] = useState(() => { try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : def; } catch { return def; } });
+  const set = useCallback(n => { const x = typeof n === 'function' ? n(v) : n; setV(x); try { localStorage.setItem(key, JSON.stringify(x)); } catch {} }, [key, v]);
+  return [v, set];
 }
-
 function fmtPrice(n) { return `$${Number(n || 0).toFixed(2)}`; }
 
-// ── FALLBACK MENU (when POS is offline) ────────────────────────────────────────
+// ── DEMO MENU ─────────────────────────────────────────────────────────────────
 const DEMO_MENU = {
   store_name: 'Rice Plus Grill',
   categories: [
-    { id: 'hoagies',  name: 'Hoagies & Subs',   icon: '🥖' },
-    { id: 'hotfoods', name: 'Hot Foods',         icon: '🍗' },
-    { id: 'drinks',   name: 'Drinks',            icon: '🥤' },
-    { id: 'snacks',   name: 'Snacks',            icon: '🍿' },
-    { id: 'combos',   name: 'Combos',            icon: '🎁' },
+    { id:'rice',    name:'Rice Plates',    icon:'🍚' },
+    { id:'noodles', name:'Noodles',        icon:'🍜' },
+    { id:'grills',  name:'Grilled Items',  icon:'🥩' },
+    { id:'drinks',  name:'Drinks',         icon:'🥤' },
+    { id:'combos',  name:'Combos',         icon:'🎁' },
   ],
   items: [
-    // Hoagies
-    { id: 'ts1', category_id: 'hoagies', name: 'Turkey Sub',  emoji: '🥖', base_price: 6.99, description: 'Fresh sliced turkey, lettuce, tomato, provolone', calories: 520, modifier_groups: [
-      { id:'size', name:'Size', type:'single', required:true, modifiers: [
-        { id:'reg', name:'Regular (8")', price_delta:0, is_default:true },
-        { id:'shrt', name:'Shorty (4")', price_delta:-1.50 },
-      ]},
-      { id:'bread', name:'Bread', type:'single', required:true, modifiers: [
-        { id:'white', name:'White', price_delta:0, is_default:true },
-        { id:'wheat', name:'Wheat', price_delta:0 },
-        { id:'wrap',  name:'Wrap',  price_delta:0 },
-      ]},
-      { id:'extras', name:'Add-ons', type:'multi', required:false, max_select:5, modifiers: [
-        { id:'bacon', name:'Bacon',       price_delta:1.00 },
-        { id:'avo',   name:'Avocado',     price_delta:1.25 },
-        { id:'xch',   name:'Extra Cheese',price_delta:0.75 },
-        { id:'jal',   name:'Jalapeños',   price_delta:0 },
+    { id:'r1', category_id:'rice',    name:'Grilled Chicken Rice',      emoji:'🍗', base_price:9.99,  description:'Jasmine rice topped with grilled chicken, fried egg, and cucumber salad', calories:620 },
+    { id:'r2', category_id:'rice',    name:'BBQ Pork Rice',             emoji:'🥓', base_price:10.49, description:'Slow-cooked BBQ pork over steamed jasmine rice with pickled veggies', calories:700 },
+    { id:'r3', category_id:'rice',    name:'Lemongrass Beef Rice',      emoji:'🥩', base_price:11.99, description:'Fragrant lemongrass beef, jasmine rice, fresh herbs', calories:750 },
+    { id:'r4', category_id:'rice',    name:'Tofu Veggie Rice',          emoji:'🥦', base_price:8.99,  description:'Pan-fried tofu, seasonal vegetables, garlic rice', calories:480 },
+    { id:'n1', category_id:'noodles', name:'Pho Noodle Soup',           emoji:'🍜', base_price:10.99, description:'Rich bone broth, rice noodles, tender beef, fresh herbs & bean sprouts', calories:580 },
+    { id:'n2', category_id:'noodles', name:'Stir-Fried Noodles',        emoji:'🥡', base_price:9.99,  description:'Wok-tossed egg noodles with chicken, vegetables, soy-oyster sauce', calories:640 },
+    { id:'n3', category_id:'noodles', name:'Spicy Tom Yum Noodles',     emoji:'🌶', base_price:11.49, description:'Spicy lemongrass broth, shrimp, mushrooms, rice noodles', calories:520, modifier_groups:[
+      { id:'spice', name:'Spice Level', type:'single', required:true, modifiers:[
+        { id:'mild',   name:'Mild',   price_delta:0, is_default:true },
+        { id:'medium', name:'Medium', price_delta:0 },
+        { id:'hot',    name:'Hot 🔥', price_delta:0 },
       ]},
     ]},
-    { id: 'it1', category_id: 'hoagies', name: 'Italian Sub',  emoji: '🥪', base_price: 7.49, description: 'Salami, capicola, ham, provolone, oil & vinegar', calories: 680 },
-    { id: 'tu1', category_id: 'hoagies', name: 'Tuna Sub',     emoji: '🐟', base_price: 6.49, description: 'Albacore tuna salad, celery, on your choice of bread', calories: 490 },
-    { id: 'blt', category_id: 'hoagies', name: 'BLT Sub',      emoji: '🥓', base_price: 5.99, description: 'Crispy bacon, lettuce, tomato, mayo', calories: 560 },
-    { id: 'veg', category_id: 'hoagies', name: 'Veggie Sub',   emoji: '🥗', base_price: 5.49, description: 'Fresh veggies, hummus, provolone', calories: 380 },
-    // Hot Foods
-    { id: 'hd1', category_id: 'hotfoods', name: 'Hot Dog',           emoji: '🌭', base_price: 2.49, description: 'All-beef frank on a toasted bun', calories: 310, modifier_groups: [
-      { id:'toppings', name:'Toppings', type:'multi', required:false, max_select:4, modifiers: [
-        { id:'must', name:'Mustard',    price_delta:0 },
-        { id:'ketch',name:'Ketchup',   price_delta:0 },
-        { id:'onion',name:'Onions',    price_delta:0 },
-        { id:'rel',  name:'Relish',    price_delta:0 },
-        { id:'chili',name:'Chili',     price_delta:0.75 },
-        { id:'chs',  name:'Cheese',    price_delta:0.75 },
-      ]},
-    ]},
-    { id: 'ct1', category_id: 'hotfoods', name: 'Chicken Tenders', emoji: '🍗', base_price: 5.99, description: '4-piece hand-breaded tenders, choice of sauce', calories: 620, modifier_groups: [
-      { id:'sauce', name:'Dipping Sauce', type:'single', required:true, modifiers: [
-        { id:'ranch',   name:'Ranch',        price_delta:0, is_default:true },
-        { id:'bbq',     name:'BBQ',          price_delta:0 },
-        { id:'honey',   name:'Honey Mustard',price_delta:0 },
-        { id:'buffalo', name:'Buffalo',      price_delta:0 },
-      ]},
-    ]},
-    { id: 'bs1', category_id: 'hotfoods', name: 'Breakfast Sandwich', emoji: '🍳', base_price: 4.99, description: 'Egg, cheese, your choice of meat on a roll', calories: 530, modifier_groups: [
-      { id:'meat', name:'Meat', type:'single', required:true, modifiers: [
-        { id:'bacon2', name:'Bacon',   price_delta:0, is_default:true },
-        { id:'saus',   name:'Sausage', price_delta:0 },
-        { id:'ham2',   name:'Ham',     price_delta:0 },
-        { id:'nomeat', name:'No Meat', price_delta:0 },
-      ]},
-      { id:'roll', name:'Bread', type:'single', required:true, modifiers: [
-        { id:'kaiser', name:'Kaiser Roll',  price_delta:0, is_default:true },
-        { id:'bagel',  name:'Bagel',        price_delta:0.25 },
-        { id:'eng',    name:'English Muffin',price_delta:0 },
-      ]},
-    ]},
-    { id: 'mac1', category_id: 'hotfoods', name: 'Mac & Cheese', emoji: '🧀', base_price: 3.99, description: 'Creamy cheddar mac, made fresh daily', calories: 420 },
-    // Drinks
-    { id: 'fd1', category_id: 'drinks', name: 'Fountain Drink', emoji: '🥤', base_price: 1.49, description: 'Pepsi, Diet Pepsi, Sierra Mist, Lemonade & more', modifier_groups: [
-      { id:'dsize', name:'Size', type:'single', required:true, modifiers: [
-        { id:'sm', name:'Small',  price_delta:0,    is_default:true },
-        { id:'md', name:'Medium', price_delta:0.30 },
-        { id:'lg', name:'Large',  price_delta:0.50 },
-      ]},
-    ]},
-    { id: 'cf1', category_id: 'drinks', name: 'Coffee',         emoji: '☕', base_price: 1.99, description: 'Fresh-brewed, any size', calories: 5 },
-    { id: 'sn1', category_id: 'drinks', name: 'Snapple',        emoji: '🍵', base_price: 2.49, description: 'Assorted flavors', calories: 160 },
-    { id: 'gt1', category_id: 'drinks', name: 'Gatorade',       emoji: '⚡', base_price: 2.29, description: 'Assorted flavors', calories: 140 },
-    { id: 'wt1', category_id: 'drinks', name: 'Bottled Water',  emoji: '💧', base_price: 1.29, description: 'Ice cold', calories: 0 },
-    // Snacks
-    { id: 'ch1', category_id: 'snacks', name: 'Chips',          emoji: '🍟', base_price: 1.29, description: 'Assorted varieties' },
-    { id: 'do1', category_id: 'snacks', name: 'Doritos',        emoji: '🌽', base_price: 1.49, description: 'Nacho Cheese or Cool Ranch' },
-    { id: 'pr1', category_id: 'snacks', name: 'Pretzels',       emoji: '🥨', base_price: 1.19, description: 'Soft pretzel, salted' },
-    { id: 'mu1', category_id: 'snacks', name: 'Muffin',         emoji: '🧁', base_price: 2.49, description: 'Blueberry or chocolate chip', calories: 480 },
-    // Combos
-    { id: 'co1', category_id: 'combos', name: 'Sub + Drink',    emoji: '🎁', base_price: 8.49, description: 'Any sub + any fountain drink', calories: 0 },
-    { id: 'co2', category_id: 'combos', name: 'Breakfast Combo',emoji: '🌅', base_price: 5.99, description: 'Breakfast sandwich + any coffee', calories: 0 },
-    { id: 'co3', category_id: 'combos', name: 'Tender Combo',   emoji: '🍗', base_price: 7.49, description: '4 tenders + drink + snack', calories: 0 },
+    { id:'g1', category_id:'grills',  name:'Grilled Pork Skewers',      emoji:'🍢', base_price:7.99,  description:'3 skewers of marinated pork, served with dipping sauce', calories:390 },
+    { id:'g2', category_id:'grills',  name:'Grilled Chicken Thighs',    emoji:'🍗', base_price:11.99, description:'2 juicy grilled thighs, lemongrass marinade, served with jasmine rice', calories:680 },
+    { id:'g3', category_id:'grills',  name:'Beef Satay',                emoji:'🥩', base_price:12.99, description:'4 tender beef skewers, peanut sauce, pickled cucumber', calories:520 },
+    { id:'d1', category_id:'drinks',  name:'Thai Iced Tea',             emoji:'🧡', base_price:3.99,  description:'Classic sweetened black tea with condensed milk', calories:220 },
+    { id:'d2', category_id:'drinks',  name:'Coconut Water',             emoji:'🥥', base_price:3.49,  description:'Fresh young coconut water, lightly chilled', calories:90  },
+    { id:'d3', category_id:'drinks',  name:'Fresh Limeade',             emoji:'🍋', base_price:2.99,  description:'Freshly squeezed lime, sugar, sparkling water', calories:110 },
+    { id:'d4', category_id:'drinks',  name:'Bottled Water',             emoji:'💧', base_price:1.49,  description:'Still water, chilled', calories:0  },
+    { id:'c1', category_id:'combos',  name:'Rice Plate + Drink',        emoji:'🎁', base_price:12.99, description:'Any rice plate + any drink', calories:0 },
+    { id:'c2', category_id:'combos',  name:'Noodles + Drink',           emoji:'🎁', base_price:13.49, description:'Any noodle dish + any drink', calories:0 },
+    { id:'c3', category_id:'combos',  name:'Family Pack (4 Rice Plates)',emoji:'👨‍👩‍👧‍👦', base_price:36.99, description:'4 rice plates of your choice + 4 drinks', calories:0 },
   ],
 };
 
-// ── ICONS (inline SVG) ────────────────────────────────────────────────────────
+// ── ICONS ─────────────────────────────────────────────────────────────────────
 const IconX = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
     <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -164,51 +89,33 @@ const IconCart = () => (
   </svg>
 );
 const IconSearch = () => (
-  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
     <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
   </svg>
 );
-const IconCheck = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="20 6 9 17 4 12"/>
-  </svg>
-);
-const IconPlus  = () => <span style={{fontSize:18,fontWeight:700,lineHeight:1}}>+</span>;
-const IconMinus = () => <span style={{fontSize:18,fontWeight:700,lineHeight:1}}>−</span>;
-const IconLock  = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>;
+const IconCheck  = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>);
+const IconLock   = () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>);
 
 // ════════════════════════════════════════════════════════════════════════════
-// COMPONENTS
+// SETUP SCREEN
 // ════════════════════════════════════════════════════════════════════════════
-
-// ── SETUP SCREEN ──────────────────────────────────────────────────────────────
 function SetupScreen({ onConnect, onSkip }) {
-  const [url, setUrl]   = useState('');
+  const [url, setUrl] = useState('');
+  const [busy, setBusy] = useState(false);
   const [autoChecking, setAutoChecking] = useState(true);
 
-  // Auto-discover POS URL:
-  // 1. If loaded from trycloudflare.com — use relative paths (same-origin)
-  // 2. Otherwise — fetch tunnel.json from Netlify (auto-updated by POS on startup)
-  React.useEffect(() => {
+  useEffect(() => {
     const origin = window.location.origin;
     const isTrycloudflare = origin.includes('trycloudflare.com');
     const isLocalhost = origin.includes('localhost') || origin.includes('127.0.0.1');
-
     if (isTrycloudflare || isLocalhost) {
-      // Served directly from POS tunnel — use same-origin relative paths
-      setUrl('');
       posFetch('/store-info', { signal: AbortSignal.timeout(6000) })
         .then(info => { if (info.ok) onConnect('', info); else setAutoChecking(false); })
         .catch(() => setAutoChecking(false));
       return;
     }
-
-    // Auto-connect: read tunnel URL from GitHub (CORS-safe, updated by POS on startup)
     const REGISTRY_URL = 'https://raw.githubusercontent.com/mouyleang1984/bfm-ordering/main/tunnel-url.txt';
-    fetch(REGISTRY_URL + '?t=' + Date.now(), {
-      cache: 'no-store',
-      signal: AbortSignal.timeout(6000)
-    })
+    fetch(REGISTRY_URL + '?t=' + Date.now(), { cache:'no-store', signal: AbortSignal.timeout(6000) })
       .then(async r => {
         if (!r.ok) { setAutoChecking(false); return; }
         const tunnelUrl = (await r.text()).trim();
@@ -216,15 +123,11 @@ function SetupScreen({ onConnect, onSkip }) {
         setUrl(tunnelUrl);
         try {
           const info = await posFetch(`${tunnelUrl}/store-info`, { signal: AbortSignal.timeout(8000) });
-          if (info?.ok) onConnect(tunnelUrl, info);
-          else setAutoChecking(false);
+          if (info?.ok) onConnect(tunnelUrl, info); else setAutoChecking(false);
         } catch(_) { setAutoChecking(false); }
       })
       .catch(() => setAutoChecking(false));
   }, []);
-  const [busy, setBusy] = useState(false);
-
-
 
   const tryConnect = async () => {
     const clean = url.trim().replace(/\/$/, '');
@@ -232,156 +135,116 @@ function SetupScreen({ onConnect, onSkip }) {
     setBusy(true);
     try {
       const d = await posFetch(`${clean}/store-info`, { signal: AbortSignal.timeout(6000) });
-      if (d.ok) {
-        toast(`Connected to ${d.name || 'POS'}!`, 'success');
-        onConnect(clean, d);
-      } else { toast('POS responded but with unexpected data', 'error'); }
+      if (d.ok) { toast(`Connected to ${d.name || 'POS'}!`, 'success'); onConnect(clean, d); }
+      else toast('POS responded but with unexpected data', 'error');
     } catch(e) { toast(e.message || 'Cannot reach POS — is it running?', 'error'); }
     setBusy(false);
   };
 
   if (autoChecking) {
     return (
-      <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', padding:20,
-        background:'linear-gradient(135deg, #c8102e 0%, #8b0000 100%)' }}>
-        <div style={{ width:'100%', maxWidth:400, background:'#fff', borderRadius:20, padding:48, boxShadow:'0 20px 60px rgba(0,0,0,.25)', textAlign:'center' }}>
-          <img src="logo.png" alt="Rice Plus Grill" style={{ width:180, marginBottom:8, borderRadius:12 }} />
-          <div style={{ fontSize:36, marginBottom:12, animation:'spin 1.5s linear infinite' }}>🔄</div>
-          <p style={{ fontSize:16, fontWeight:700, color:'#333', margin:0 }}>Connecting to POS…</p>
-          <p style={{ fontSize:13, color:'#888', marginTop:6 }}>Finding your store automatically</p>
+      <div className="setup-bg">
+        <div className="setup-card" style={{ textAlign:'center' }}>
+          <div style={{ fontSize:60, marginBottom:10 }}>{CONFIG.logoEmoji}</div>
+          <h1 style={{ fontSize:24, fontWeight:900, color:CONFIG.accentColor, marginBottom:6 }}>{CONFIG.storeName}</h1>
+          <div style={{ fontSize:32, animation:'spin 1.5s linear infinite', margin:'12px 0' }}>🔄</div>
+          <p style={{ fontWeight:700, fontSize:15, color:'#333' }}>Connecting to POS…</p>
+          <p style={{ fontSize:13, color:'#888', marginTop:4 }}>Finding your store automatically</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', padding:20,
-      background:'linear-gradient(135deg, #c8102e 0%, #8b0000 100%)' }}>
-      <div style={{ width:'100%', maxWidth:480, background:'#fff', borderRadius:20, padding:40, boxShadow:'0 20px 60px rgba(0,0,0,.25)', animation:'slideUp .4s ease' }}>
-        <div style={{ textAlign:'center', marginBottom:28 }}>
-          <img src="logo.png" alt="Rice Plus Grill" style={{ width:160, marginBottom:8, borderRadius:12 }} />
-          <p style={{ color:'#666', marginTop:4, fontSize:15 }}>Connect your POS to start taking orders</p>
+    <div className="setup-bg">
+      <div className="setup-card">
+        <div style={{ textAlign:'center', marginBottom:24 }}>
+          <div style={{ fontSize:60, marginBottom:8 }}>{CONFIG.logoEmoji}</div>
+          <h1 style={{ fontSize:24, fontWeight:900, color:CONFIG.accentColor }}>{CONFIG.storeName}</h1>
+          <p style={{ color:'#666', marginTop:4, fontSize:14 }}>Connect your POS to start taking orders</p>
         </div>
-
-        <label className="field-label" style={{fontSize:14, fontWeight:700}}>🔗 POS Tunnel URL</label>
+        <label className="field-label">🔗 POS Tunnel URL</label>
         <input className="input" value={url} onChange={e => setUrl(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && tryConnect()}
-          placeholder="https://xxxx.trycloudflare.com"
-          style={{ marginBottom:10, fontSize:15 }}/>
-        <div style={{ background:'#fff8e1', border:'1px solid #f59e0b', borderRadius:8, padding:'10px 14px', marginBottom:16 }}>
-          <p style={{ fontSize:12, fontWeight:700, color:'#b45309', margin:'0 0 4px' }}>📋 How to get your URL:</p>
-          <p style={{ fontSize:12, color:'#92400e', margin:0, lineHeight:1.7 }}>
-            1. Open the POS app on your PC<br/>
-            2. Go to <strong>Settings → Phone Order System</strong><br/>
-            3. Wait for <strong style={{color:'#22c55e'}}>🌐 Cloudflare Tunnel: ACTIVE</strong><br/>
-            4. Click <strong>📋 Copy</strong> next to the 🛒 Online Ordering URL<br/>
-            5. Paste it here and click Connect
-          </p>
+          placeholder="https://xxxx.trycloudflare.com" style={{ marginBottom:10 }}/>
+        <div style={{ background:'#fffbea', border:'1px solid #f59e0b', borderRadius:8, padding:'10px 14px', marginBottom:16, fontSize:12, color:'#92400e', lineHeight:1.7 }}>
+          <strong>How to get your URL:</strong><br/>
+          1. Open POS → Settings → Phone Order System<br/>
+          2. Wait for 🌐 Cloudflare Tunnel: ACTIVE<br/>
+          3. Copy the 🛒 Online Ordering URL and paste here
         </div>
-
-        <button className="btn btn-primary" onClick={tryConnect} disabled={busy || !url.trim()} style={{ width:'100%', padding:14, fontSize:16, marginBottom:12 }}>
+        <button className="btn btn-red" onClick={tryConnect} disabled={busy || !url.trim()} style={{ width:'100%', padding:14, fontSize:15, marginBottom:10 }}>
           {busy ? '⏳ Connecting…' : '🔌 Connect to POS'}
         </button>
-
         <button className="btn btn-gray" onClick={onSkip} style={{ width:'100%', padding:12, fontSize:14 }}>
-          👁 Preview with Demo Menu
+          👁 Preview Demo Menu
         </button>
-
-        <p style={{ fontSize:11, color:'#aaa', marginTop:16, textAlign:'center' }}>
-          Or append <code style={{background:'#f5f5f5',padding:'1px 5px',borderRadius:4}}>?pos=YOUR_URL</code> to skip this screen
-        </p>
       </div>
     </div>
   );
 }
 
-// ── HEADER ────────────────────────────────────────────────────────────────────
-function Header({ storeName, storeHours, cartCount, cartTotal, onCartOpen, search, onSearch, isDemo }) {
+// ════════════════════════════════════════════════════════════════════════════
+// HEADER
+// ════════════════════════════════════════════════════════════════════════════
+function Header({ storeName, isDemo, cartCount, cartTotal, onCartOpen, search, onSearch }) {
   return (
-    <header style={{ background: CONFIG.accentColor, color: '#fff', position: 'sticky', top: 0, zIndex: 200, boxShadow: '0 2px 12px rgba(0,0,0,.2)' }}>
-      {isDemo && (
-        <div style={{ background:'#ff9800', color:'#fff', textAlign:'center', fontSize:12, fontWeight:700, padding:'5px 12px' }}>
-          🔶 DEMO MODE — Orders won't reach a real kitchen. Connect your POS to go live.
-        </div>
-      )}
-      <div style={{ maxWidth:1100, margin:'0 auto', padding:'0 20px', height:64, display:'flex', alignItems:'center', gap:16 }}>
-        {/* Brand */}
-        <div style={{ display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
-          <img src="logo.png" alt="Rice Plus Grill" style={{ height:42, borderRadius:6 }} />
+    <header className="app-header">
+      {isDemo && <div className="demo-bar">🔶 DEMO MODE — Connect your POS to go live</div>}
+      <div className="header-inner">
+        <div className="header-brand">
+          <span className="header-brand-emoji">{CONFIG.logoEmoji}</span>
           <div>
-            <div style={{ fontWeight:900, fontSize:17, lineHeight:1.1 }}>{storeName}</div>
-            {storeHours && <div style={{ fontSize:11, opacity:.8 }}>{storeHours}</div>}
+            <div className="header-brand-name">{storeName}</div>
+            <div className="header-brand-sub">Online Ordering</div>
           </div>
         </div>
 
-        {/* Search */}
-        <div style={{ flex:1, maxWidth:380, display:'flex', alignItems:'center', background:'rgba(255,255,255,.18)', borderRadius:8, padding:'0 12px', gap:8 }}>
+        <div className="header-search">
           <IconSearch/>
-          <input value={search} onChange={e => onSearch(e.target.value)} placeholder="Search menu…"
-            style={{ background:'none', border:'none', color:'#fff', fontSize:14, outline:'none', flex:1, padding:'10px 0', '::placeholder': { color:'rgba(255,255,255,.7)' } }}/>
-          {search && <button onClick={() => onSearch('')} style={{ background:'none', border:'none', color:'rgba(255,255,255,.8)', cursor:'pointer', fontSize:18, lineHeight:1 }}>×</button>}
+          <input
+            value={search} onChange={e => onSearch(e.target.value)}
+            placeholder="Search menu…"
+          />
+          {search && (
+            <button className="header-search-x" onClick={() => onSearch('')}>×</button>
+          )}
         </div>
 
-        {/* Cart Button */}
-        <button onClick={onCartOpen} style={{
-          position:'relative', display:'flex', alignItems:'center', gap:8,
-          background:'#fff', color:CONFIG.accentColor, border:'none',
-          borderRadius:10, padding:'9px 18px', fontWeight:800, fontSize:14,
-          cursor:'pointer', transition:'transform .15s', flexShrink:0,
-          boxShadow:'0 2px 8px rgba(0,0,0,.15)',
-        }} onMouseEnter={e=>e.currentTarget.style.transform='scale(1.04)'}
-           onMouseLeave={e=>e.currentTarget.style.transform='scale(1)'}>
+        <button className="header-cart" onClick={onCartOpen}>
           <IconCart/>
-          <span>Order</span>
-          {cartCount > 0 && (
-            <>
-              <span style={{ background:CONFIG.accentColor, color:'#fff', borderRadius:12, padding:'1px 8px', fontSize:13 }}>
-                {cartCount}
-              </span>
-              <span style={{ fontSize:13, fontWeight:600, opacity:.9 }}>{fmtPrice(cartTotal)}</span>
-            </>
-          )}
-          {cartCount === 0 && <span style={{ fontSize:13, opacity:.7 }}>Empty</span>}
+          <span className="cart-label">Order</span>
+          {cartCount > 0
+            ? <><span className="header-cart-badge">{cartCount}</span><span className="cart-total">{fmtPrice(cartTotal)}</span></>
+            : <span className="cart-label" style={{opacity:.6, fontSize:12}}>Empty</span>
+          }
         </button>
       </div>
     </header>
   );
 }
 
-// ── HERO BANNER ───────────────────────────────────────────────────────────────
-function HeroBanner({ onStartOrder }) {
+// ════════════════════════════════════════════════════════════════════════════
+// HERO BANNER
+// ════════════════════════════════════════════════════════════════════════════
+function HeroBanner() {
   return (
-    <div style={{
-      background:'linear-gradient(120deg, #a0000e 0%, #c8102e 50%, #e8223e 100%)',
-      color:'#fff', padding:'36px 20px', textAlign:'center',
-    }}>
-      <div style={{ maxWidth:700, margin:'0 auto' }}>
-        <h2 style={{ fontSize:'clamp(22px,5vw,38px)', fontWeight:900, marginBottom:8, lineHeight:1.2 }}>
-          {CONFIG.storeTagline}
-        </h2>
-        <p style={{ opacity:.85, fontSize:'clamp(13px,2.5vw,17px)', marginBottom:24 }}>
-          Order ahead for pickup or delivery. Skip the line, every time.
-        </p>
-        <div style={{ display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap' }}>
-          <button className="btn" onClick={onStartOrder} style={{ background:'#fff', color:CONFIG.accentColor, fontSize:16, padding:'13px 28px' }}>
-            🏪 Order for Pickup
-          </button>
-          <button className="btn" onClick={onStartOrder} style={{ background:'rgba(255,255,255,.18)', color:'#fff', border:'2px solid rgba(255,255,255,.5)', fontSize:16, padding:'13px 28px' }}>
-            🛵 Order for Delivery
-          </button>
-        </div>
-        <div style={{ display:'flex', gap:24, justifyContent:'center', marginTop:20, flexWrap:'wrap' }}>
-          {['🕐 Ready in 10–15 min', '📍 Pickup inside', '🛵 Delivery available', '💳 Pay securely online'].map(f => (
-            <span key={f} style={{ fontSize:13, opacity:.9, fontWeight:600 }}>{f}</span>
-          ))}
-        </div>
+    <div className="hero">
+      <h1>{CONFIG.storeTagline}</h1>
+      <p>Order ahead for pickup or delivery. Ready in 10–15 min.</p>
+      <div className="hero-chips">
+        {['🕐 10–15 min', '📍 Pickup', '🛵 Delivery', '💳 Secure pay'].map(c => (
+          <span key={c} className="hero-chip">{c}</span>
+        ))}
       </div>
     </div>
   );
 }
 
-// ── CATEGORY TABS ─────────────────────────────────────────────────────────────
-function CategoryTabs({ categories, active, onSelect }) {
+// ════════════════════════════════════════════════════════════════════════════
+// CATEGORY TABS (mobile horizontal scroll bar)
+// ════════════════════════════════════════════════════════════════════════════
+function CategoryScrollBar({ categories, active, onSelect }) {
   const ref = useRef(null);
   useEffect(() => {
     const el = ref.current?.querySelector(`[data-cat="${active}"]`);
@@ -389,365 +252,354 @@ function CategoryTabs({ categories, active, onSelect }) {
   }, [active]);
 
   return (
-    <div ref={ref} style={{
-      background:'#fff', borderBottom:'2px solid #eee', position:'sticky', top:64, zIndex:150,
-      overflowX:'auto', display:'flex', gap:0, scrollbarWidth:'none', padding:'0 12px',
-    }}>
-      {categories.map(cat => (
-        <button key={cat.id} data-cat={cat.id} onClick={() => onSelect(cat.id)}
-          style={{
-            flexShrink:0, padding:'14px 18px', border:'none', background:'none', cursor:'pointer',
-            fontWeight: active === cat.id ? 800 : 600,
-            color:      active === cat.id ? CONFIG.accentColor : '#555',
-            fontSize:   14,
-            borderBottom: active === cat.id ? `3px solid ${CONFIG.accentColor}` : '3px solid transparent',
-            transition: 'all .15s',
-            display:'flex', alignItems:'center', gap:6, whiteSpace:'nowrap',
-          }}>
-          <span style={{ fontSize:18 }}>{cat.icon}</span>
-          {cat.name}
+    <div ref={ref} className="cat-scroll-bar">
+      {(categories || []).map(c => (
+        <button
+          key={c.id}
+          data-cat={c.id}
+          className={`cat-scroll-btn${active === c.id ? ' active' : ''}`}
+          onClick={() => onSelect(c.id)}
+        >
+          <span>{c.icon}</span>
+          <span>{c.name}</span>
         </button>
       ))}
     </div>
   );
 }
 
-// ── ITEM CARD ─────────────────────────────────────────────────────────────────
-function ItemCard({ item, cartQty, onAdd }) {
-  const [hov, setHov] = useState(false);
-  const soldOut = item.is_sold_out === 1 || item.is_sold_out === true;
-  const hasModifiers = (item.modifier_groups || []).length > 0;
+// ════════════════════════════════════════════════════════════════════════════
+// WAWA-STYLE MENU LAYOUT
+// Left sidebar (desktop) + scrollable item list (Wawa/DoorDash style)
+// ════════════════════════════════════════════════════════════════════════════
+function MenuLayout({ menu, search, activeCat, onCatSelect, cartQtyFor, onAdd }) {
+  const categories = menu?.categories || [];
+  const items      = menu?.items || [];
+
+  // When searching: flat list. When browsing: show ONE section at a time
+  const visibleItems = useMemo(() => {
+    if (!items.length) return [];
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      return items.filter(i => i.name.toLowerCase().includes(q) || (i.description||'').toLowerCase().includes(q));
+    }
+    return activeCat ? items.filter(i => i.category_id === activeCat) : items;
+  }, [items, search, activeCat]);
+
+  const activeCatObj = categories.find(c => c.id === activeCat);
 
   return (
-    <div onClick={() => !soldOut && onAdd(item)}
-      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{
-        background:'#fff', borderRadius:14, overflow:'hidden', cursor: soldOut ? 'default' : 'pointer',
-        border:`2px solid ${hov && !soldOut ? CONFIG.accentColor : cartQty > 0 ? '#ffc0cb' : '#eee'}`,
-        boxShadow: hov && !soldOut ? '0 8px 28px rgba(200,16,46,.13)' : '0 2px 8px rgba(0,0,0,.06)',
-        transform: hov && !soldOut ? 'translateY(-3px)' : 'none',
-        transition:'all .2s', opacity: soldOut ? .55 : 1, display:'flex', flexDirection:'column',
-        position:'relative',
-        animation:'fadeIn .3s ease',
-      }}>
+    <div className="menu-layout">
+      {/* ── LEFT SIDEBAR (desktop/tablet only via CSS) ── */}
+      <nav className="cat-sidebar">
+        <div className="cat-sidebar-title">Menu</div>
+        {categories.map(c => (
+          <button
+            key={c.id}
+            className={`cat-sidebar-btn${activeCat === c.id && !search ? ' active' : ''}`}
+            onClick={() => onCatSelect(c.id)}
+          >
+            <span className="cat-sidebar-icon">{c.icon}</span>
+            <span>{c.name}</span>
+          </button>
+        ))}
+      </nav>
 
-      {/* Cart badge */}
-      {cartQty > 0 && (
-        <div style={{ position:'absolute', top:8, right:8, background:CONFIG.accentColor, color:'#fff',
-          borderRadius:12, width:24, height:24, fontSize:12, fontWeight:800,
-          display:'flex', alignItems:'center', justifyContent:'center', zIndex:2, boxShadow:'0 2px 6px rgba(0,0,0,.2)' }}>
-          {cartQty}
-        </div>
-      )}
-
-      {/* Image / emoji */}
-      <div style={{ height:130, background:'#f9f9f9', display:'flex', alignItems:'center', justifyContent:'center',
-        position:'relative', overflow:'hidden', flexShrink:0 }}>
-        {item.photo_url
-          ? <img src={item.photo_url} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }}
-              onError={e => { e.target.style.display='none'; }}/>
-          : <span style={{ fontSize:52, filter:'drop-shadow(0 2px 4px rgba(0,0,0,.08))' }}>{item.emoji || '🍽️'}</span>}
-        {soldOut && (
-          <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.5)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <span style={{ background:'#c62828', color:'#fff', borderRadius:6, padding:'3px 12px', fontSize:12, fontWeight:700 }}>SOLD OUT</span>
+      {/* ── RIGHT CONTENT ── */}
+      <div className="menu-content">
+        {/* Search results header */}
+        {search && (
+          <div style={{ marginBottom:16, fontSize:14, color:'#555' }}>
+            <strong>{visibleItems.length}</strong> result{visibleItems.length !== 1 ? 's' : ''} for "{search}"
           </div>
         )}
-        {hasModifiers && !soldOut && (
-          <div style={{ position:'absolute', bottom:6, left:8, background:'rgba(0,0,0,.55)', color:'#fff',
-            borderRadius:10, padding:'2px 8px', fontSize:10, fontWeight:700 }}>
-            Customizable
-          </div>
-        )}
-      </div>
 
-      {/* Info */}
-      <div style={{ padding:'12px 14px 14px', flex:1, display:'flex', flexDirection:'column' }}>
-        <div style={{ fontWeight:800, fontSize:15, lineHeight:1.3, marginBottom:4 }}>{item.name}</div>
-        {item.description && (
-          <div style={{ fontSize:12, color:'#777', lineHeight:1.5, flex:1, marginBottom:8 }}>{item.description}</div>
-        )}
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:'auto' }}>
-          <span style={{ fontWeight:900, fontSize:17, color: CONFIG.accentColor }}>{fmtPrice(item.base_price)}</span>
-          {item.calories > 0 && <span style={{ fontSize:11, color:'#aaa' }}>{item.calories} cal</span>}
-        </div>
-        {!soldOut && (
-          <div style={{ marginTop:8, padding:'8px', background: hov ? CONFIG.accentColor : '#f9f9f9',
-            borderRadius:8, textAlign:'center', color: hov ? '#fff' : CONFIG.accentColor,
-            fontWeight:700, fontSize:13, transition:'all .2s' }}>
-            {cartQty > 0 ? `✓ Add another` : hasModifiers ? `Customize & Add` : `+ Add to Order`}
+        {/* Category title */}
+        {!search && activeCatObj && (
+          <div className="cat-section-title">
+            <span>{activeCatObj.icon}</span>
+            <span>{activeCatObj.name}</span>
           </div>
+        )}
+
+        {/* Items */}
+        {visibleItems.length === 0 ? (
+          <div style={{ textAlign:'center', padding:'60px 0', color:'#aaa' }}>
+            <div style={{ fontSize:44, marginBottom:10 }}>🍽️</div>
+            <div style={{ fontWeight:700, fontSize:16 }}>{search ? 'No items found' : 'Nothing here yet'}</div>
+            <div style={{ fontSize:13, marginTop:4 }}>{search ? 'Try a different search' : 'Check another category'}</div>
+          </div>
+        ) : (
+          visibleItems.map(item => (
+            <ItemCard key={item.id} item={item} cartQty={cartQtyFor(item.id)} onAdd={onAdd}/>
+          ))
         )}
       </div>
     </div>
   );
 }
 
-// ── MODIFIER MODAL ────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════
+// ITEM CARD — horizontal Wawa/DoorDash style
+// [text info on left] [image/emoji on right] [+ button]
+// ════════════════════════════════════════════════════════════════════════════
+function ItemCard({ item, cartQty, onAdd }) {
+  const soldOut     = item.is_sold_out === 1 || item.is_sold_out === true;
+  const hasModifiers = (item.modifier_groups || []).length > 0;
+
+  const cls = ['item-card'];
+  if (soldOut)    cls.push('sold-out');
+  if (cartQty > 0) cls.push('in-cart');
+
+  return (
+    <div className={cls.join(' ')} onClick={() => !soldOut && onAdd(item)}>
+      {/* Left: info */}
+      <div className="item-card-info">
+        <div>
+          <div className="item-card-name">{item.name}</div>
+          {item.description && (
+            <div className="item-card-desc">{item.description}</div>
+          )}
+        </div>
+        <div className="item-card-meta">
+          <span className="item-card-price">{fmtPrice(item.base_price)}</span>
+          {item.calories > 0 && <span className="item-card-cal">{item.calories} cal</span>}
+          {hasModifiers && !soldOut && (
+            <span style={{ fontSize:11, color:'#888', fontStyle:'italic' }}>Customizable</span>
+          )}
+          {!soldOut && (
+            <button
+              className="item-card-add"
+              onClick={e => { e.stopPropagation(); onAdd(item); }}
+              aria-label={`Add ${item.name}`}
+            >
+              {cartQty > 0 ? cartQty : '+'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Right: image */}
+      <div className="item-card-img">
+        {item.photo_url
+          ? <img src={item.photo_url} alt={item.name} onError={e => { e.target.style.display='none'; }}/>
+          : <span className="item-card-img-emoji">{item.emoji || '🍽️'}</span>
+        }
+        {soldOut && (
+          <div className="item-sold-overlay"><span className="item-sold-tag">SOLD OUT</span></div>
+        )}
+        {hasModifiers && !soldOut && (
+          <span className="item-custom-tag">Customize</span>
+        )}
+        {cartQty > 0 && (
+          <span className="item-cart-qty">{cartQty} in cart</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// MODIFIER MODAL
+// ════════════════════════════════════════════════════════════════════════════
 function ModifierModal({ item, onClose, onAddToCart }) {
   const [qty, setQty]        = useState(1);
   const [choices, setChoices] = useState({});
-  const [note, setNote]      = useState('');
+  const [note, setNote]       = useState('');
 
-  useEffect(() => {
-    const init = {};
-    (item.modifier_groups || []).forEach(g => {
-      init[g.id] = new Set(
-        g.modifiers.filter(m => m.is_default).map(m => m.id)
-      );
-    });
-    setChoices(init);
-  }, [item.id]);
+  const isValid = () => {
+    for (const g of (item.modifier_groups || [])) {
+      if (!g.required) continue;
+      if (!(choices[g.id]?.size >= (g.min_select || 1))) return false;
+    }
+    return true;
+  };
 
-  const toggle = (group, modId) => {
-    setChoices(prev => {
-      const next = { ...prev };
-      if (group.type === 'single') {
-        next[group.id] = new Set([modId]);
-      } else {
-        const s = new Set(next[group.id] || []);
-        if (s.has(modId)) {
-          s.delete(modId);
-        } else {
-          if (group.max_select && s.size >= group.max_select) {
-            toast(`Max ${group.max_select} for ${group.name}`, 'info');
-            return prev;
-          }
-          s.add(modId);
-        }
-        next[group.id] = s;
+  const calcPrice = () => {
+    let p = item.base_price;
+    for (const g of (item.modifier_groups || [])) {
+      const sel = choices[g.id] || new Set();
+      const mods = g.modifiers || [];
+      for (const m of mods) {
+        if (sel.has(m.id)) p += (m.price_delta || 0);
       }
-      return next;
+    }
+    return p;
+  };
+
+  const toggle = (gId, mId, type) => {
+    setChoices(prev => {
+      const s = new Set(prev[gId] || []);
+      if (type === 'single') return { ...prev, [gId]: new Set([mId]) };
+      if (s.has(mId)) s.delete(mId); else s.add(mId);
+      return { ...prev, [gId]: s };
     });
   };
-
-  const isValid = () => (item.modifier_groups || []).every(g => {
-    if (!g.required) return true;
-    return (choices[g.id]?.size || 0) >= (g.min_select || 1);
-  });
-
-  const extraPrice = () => {
-    let x = 0;
-    (item.modifier_groups || []).forEach(g =>
-      (choices[g.id] || new Set()).forEach(mid => {
-        const m = g.modifiers.find(m => m.id === mid);
-        if (m) x += m.price_delta || 0;
-      })
-    );
-    return x;
-  };
-
-  const unitPrice = item.base_price + extraPrice();
-  const lineTotal = unitPrice * qty;
 
   const handleAdd = () => {
     if (!isValid()) return;
     const mods = [];
-    (item.modifier_groups || []).forEach(g =>
-      (choices[g.id] || new Set()).forEach(mid => {
-        const m = g.modifiers.find(m => m.id === mid);
-        if (m) mods.push(`${m.name}${m.price_delta > 0 ? ` +${fmtPrice(m.price_delta)}` : ''}`);
-      })
-    );
-    onAddToCart({ ...item, qty, unit_price: unitPrice, mods, note: note.trim() });
-    onClose();
+    for (const g of (item.modifier_groups || [])) {
+      const sel = choices[g.id] || new Set();
+      for (const m of (g.modifiers || [])) {
+        if (sel.has(m.id)) mods.push(m.price_delta ? `${m.name} (+${fmtPrice(m.price_delta)})` : m.name);
+      }
+    }
+    const unitPrice = calcPrice();
+    onAddToCart({ ...item, qty, unit_price: unitPrice, mods, note });
   };
+
+  useEffect(() => {
+    // Pre-select defaults
+    const init = {};
+    for (const g of (item.modifier_groups || [])) {
+      const def = (g.modifiers || []).find(m => m.is_default);
+      if (def) init[g.id] = new Set([def.id]);
+    }
+    setChoices(init);
+  }, [item]);
 
   return (
     <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth:540 }}>
-        {/* Header */}
-        <div className="modal-header">
-          <div style={{ display:'flex', align:'center', gap:10 }}>
-            <span style={{ fontSize:28 }}>{item.emoji || '🍽️'}</span>
-            <div>
-              <h2 style={{ fontSize:18, fontWeight:900 }}>{item.name}</h2>
-              <span style={{ fontSize:13, color:'#666' }}>{fmtPrice(item.base_price)}</span>
-            </div>
-          </div>
+      <div className="modal">
+        <div className="modal-hdr">
+          <h2>{item.emoji} {item.name}</h2>
           <button className="close-btn" onClick={onClose}><IconX/></button>
         </div>
-
-        <div style={{ padding:'16px 20px 24px' }}>
+        <div className="modal-body">
           {item.description && (
-            <p style={{ color:'#666', fontSize:14, lineHeight:1.6, marginBottom:16, background:'#f9f9f9', borderRadius:8, padding:'10px 14px' }}>{item.description}</p>
+            <p style={{ color:'#666', fontSize:14, marginBottom:16, lineHeight:1.5 }}>{item.description}</p>
           )}
-
-          {/* Modifier groups */}
-          {(item.modifier_groups || []).map(group => (
-            <div key={group.id} style={{ marginBottom:20 }}>
+          {(item.modifier_groups || []).map(g => (
+            <div key={g.id} style={{ marginBottom:18 }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-                <span style={{ fontWeight:800, fontSize:15 }}>{group.name}</span>
-                <span style={{
-                  fontSize:11, fontWeight:700, borderRadius:5, padding:'3px 9px',
-                  background: group.required ? '#fdecea' : '#e8f5e9',
-                  color:      group.required ? '#c62828' : '#2e7d32',
-                }}>
-                  {group.required ? 'Required' : 'Optional'}
-                  {group.type === 'multi' && group.max_select > 1 ? ` · Pick up to ${group.max_select}` : ''}
+                <div style={{ fontWeight:700, fontSize:15 }}>{g.name}</div>
+                <span style={{ fontSize:11, color:'#888', background:'#f5f5f5', borderRadius:4, padding:'2px 8px' }}>
+                  {g.required ? 'Required' : 'Optional'}
                 </span>
               </div>
-              {group.modifiers.map(mod => {
-                const selected = choices[group.id]?.has(mod.id);
+              {(g.modifiers || []).map(m => {
+                const selected = (choices[g.id] || new Set()).has(m.id);
                 return (
-                  <button key={mod.id} onClick={() => toggle(group, mod.id)}
-                    style={{
-                      display:'flex', alignItems:'center', gap:12, width:'100%',
-                      padding:'11px 14px', marginBottom:6, border:`1.5px solid ${selected ? CONFIG.accentColor : '#e0e0e0'}`,
-                      borderRadius:10, background: selected ? '#fdecea' : '#fff',
-                      cursor:'pointer', transition:'all .15s', textAlign:'left',
-                    }}>
-                    {/* Checkbox/radio indicator */}
-                    <div style={{
-                      width:20, height:20, borderRadius: group.type === 'single' ? '50%' : 5,
-                      border:`2px solid ${selected ? CONFIG.accentColor : '#ccc'}`,
-                      background: selected ? CONFIG.accentColor : '#fff',
-                      flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center',
-                      transition:'all .15s',
-                    }}>
+                  <div key={m.id} onClick={() => toggle(g.id, m.id, g.type)}
+                    style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 12px', borderRadius:8, cursor:'pointer', marginBottom:4,
+                      background: selected ? '#fdecea' : '#f9f9f9', border:`1.5px solid ${selected ? CONFIG.accentColor : '#eee'}` }}>
+                    <div style={{ width:20, height:20, borderRadius: g.type === 'single' ? '50%' : 4, border:`2px solid ${selected ? CONFIG.accentColor : '#ccc'}`,
+                      background: selected ? CONFIG.accentColor : '#fff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                       {selected && <IconCheck/>}
                     </div>
-                    <span style={{ flex:1, fontSize:14, fontWeight: selected ? 700 : 400 }}>
-                      {mod.emoji && <span style={{ marginRight:5 }}>{mod.emoji}</span>}
-                      {mod.name}
-                    </span>
-                    {mod.price_delta !== 0 && (
-                      <span style={{ fontSize:13, fontWeight:700, color: mod.price_delta > 0 ? '#2e7d32' : CONFIG.accentColor }}>
-                        {mod.price_delta > 0 ? `+${fmtPrice(mod.price_delta)}` : `-${fmtPrice(Math.abs(mod.price_delta))}`}
-                      </span>
-                    )}
-                  </button>
+                    <span style={{ flex:1, fontSize:14, fontWeight: selected ? 700 : 400 }}>{m.name}</span>
+                    {m.price_delta > 0 && <span style={{ fontSize:13, color:'#555' }}>+{fmtPrice(m.price_delta)}</span>}
+                    {m.price_delta < 0 && <span style={{ fontSize:13, color:'#2e7d32' }}>{fmtPrice(m.price_delta)}</span>}
+                  </div>
                 );
               })}
             </div>
           ))}
 
-          {/* Special instructions */}
-          <div style={{ marginBottom:20 }}>
-            <label className="field-label">Special Instructions</label>
+          {/* Special note */}
+          <div style={{ marginBottom:18 }}>
+            <label className="field-label">Special Instructions (optional)</label>
             <textarea className="input" value={note} onChange={e => setNote(e.target.value)}
-              placeholder="Allergies, no onions, extra sauce…" rows={2}
-              style={{ resize:'none', fontFamily:'inherit' }}/>
+              placeholder="E.g. no onions, extra spicy…" rows={2}
+              style={{ resize:'vertical', minHeight:60 }}/>
           </div>
 
           {/* Qty + Add */}
           <div style={{ display:'flex', gap:12, alignItems:'center' }}>
-            <div style={{ display:'flex', alignItems:'center', border:'1.5px solid #e0e0e0', borderRadius:10, overflow:'hidden' }}>
-              <button onClick={() => setQty(q => Math.max(1, q - 1))}
-                style={{ width:44, height:48, border:'none', background:'#f5f5f5', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                <IconMinus/>
-              </button>
-              <span style={{ width:36, textAlign:'center', fontWeight:800, fontSize:17 }}>{qty}</span>
-              <button onClick={() => setQty(q => Math.min(20, q + 1))}
-                style={{ width:44, height:48, border:'none', background:'#f5f5f5', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                <IconPlus/>
-              </button>
+            <div style={{ display:'flex', alignItems:'center', border:'1.5px solid #ddd', borderRadius:10, overflow:'hidden' }}>
+              <button onClick={() => setQty(q => Math.max(1, q-1))}
+                style={{ width:44, height:48, border:'none', background:'#f5f5f5', cursor:'pointer', fontSize:20, fontWeight:700 }}>−</button>
+              <span style={{ width:40, textAlign:'center', fontWeight:700, fontSize:16 }}>{qty}</span>
+              <button onClick={() => setQty(q => q+1)}
+                style={{ width:44, height:48, border:'none', background:'#f5f5f5', cursor:'pointer', fontSize:20, fontWeight:700 }}>+</button>
             </div>
-            <button className="btn btn-primary" onClick={handleAdd} disabled={!isValid()}
+            <button className="btn btn-red" onClick={handleAdd} disabled={!isValid()}
               style={{ flex:1, height:48, fontSize:16 }}>
-              Add {qty > 1 ? `${qty} × ` : ''}{fmtPrice(lineTotal)}
+              Add {qty} — {fmtPrice(calcPrice() * qty)}
             </button>
           </div>
-          {!isValid() && (
-            <p style={{ color:'#c62828', fontSize:12, textAlign:'center', marginTop:8 }}>
-              Please complete all required selections above
-            </p>
-          )}
         </div>
       </div>
     </div>
   );
 }
 
-// ── CART DRAWER ───────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════
+// CART DRAWER
+// ════════════════════════════════════════════════════════════════════════════
 function CartDrawer({ cart, open, onClose, onUpdateQty, onRemove, onClear, onCheckout }) {
-  const subtotal = cart.reduce((s, i) => s + i.unit_price * i.qty, 0);
+  const count    = cart.reduce((s,i) => s + i.qty, 0);
+  const subtotal = cart.reduce((s,i) => s + i.unit_price * i.qty, 0);
   const tax      = subtotal * CONFIG.taxRate;
   const total    = subtotal + tax;
-  const count    = cart.reduce((s, i) => s + i.qty, 0);
 
   if (!open) return null;
-
   return (
     <>
-      <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', zIndex:300, animation:'fadeIn .2s' }}/>
-      <div style={{
-        position:'fixed', right:0, top:0, bottom:0, width:'min(100%, 420px)',
-        background:'#fff', zIndex:301, display:'flex', flexDirection:'column',
-        boxShadow:'-4px 0 30px rgba(0,0,0,.15)', animation:'slideIn .25s ease',
-      }}>
-        {/* Header */}
-        <div style={{ padding:'18px 20px', borderBottom:'1px solid #eee', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+      <div className="cart-overlay" onClick={onClose}/>
+      <div className="cart-drawer">
+        <div className="cart-hdr">
           <div>
-            <h2 style={{ fontWeight:900, fontSize:20 }}>Your Order</h2>
-            {count > 0 && <span style={{ fontSize:13, color:'#888' }}>{count} item{count !== 1 ? 's' : ''}</span>}
+            <h2>Your Order</h2>
+            {count > 0 && <div style={{ fontSize:13, color:'#888', marginTop:2 }}>{count} item{count !== 1 ? 's' : ''}</div>}
           </div>
           <div style={{ display:'flex', gap:8, alignItems:'center' }}>
             {cart.length > 0 && (
               <button onClick={onClear} style={{ fontSize:12, color:'#999', background:'none', border:'1px solid #ddd', borderRadius:6, padding:'4px 10px', cursor:'pointer' }}>
-                Clear All
+                Clear all
               </button>
             )}
             <button className="close-btn" onClick={onClose}><IconX/></button>
           </div>
         </div>
 
-        {/* Items */}
-        <div style={{ flex:1, overflow:'auto', padding:'12px 20px' }}>
+        <div className="cart-body">
           {cart.length === 0 ? (
             <div style={{ textAlign:'center', padding:'60px 0', color:'#aaa' }}>
-              <div style={{ fontSize:52, marginBottom:12 }}>🛒</div>
-              <div style={{ fontWeight:700, fontSize:16, marginBottom:4 }}>Your cart is empty</div>
-              <div style={{ fontSize:13 }}>Browse the menu and add some items!</div>
+              <div style={{ fontSize:50, marginBottom:12 }}>🛒</div>
+              <div style={{ fontWeight:700, fontSize:16 }}>Your cart is empty</div>
+              <div style={{ fontSize:13, marginTop:4 }}>Browse the menu and add items</div>
             </div>
           ) : (
             cart.map((item, idx) => (
-              <div key={idx} style={{ display:'flex', gap:12, padding:'14px 0', borderBottom:'1px solid #f0f0f0', animation:'fadeIn .2s' }}>
-                <span style={{ fontSize:30, flexShrink:0 }}>{item.emoji || '🍽️'}</span>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontWeight:700, fontSize:14, lineHeight:1.3 }}>{item.name}</div>
+              <div key={idx} className="cart-row">
+                <span className="cart-row-emoji">{item.emoji || '🍽️'}</span>
+                <div className="cart-row-info">
+                  <div className="cart-row-name">{item.name}</div>
                   {item.mods?.length > 0 && (
-                    <div style={{ fontSize:12, color:'#888', marginTop:2, lineHeight:1.4 }}>{item.mods.join(' · ')}</div>
+                    <div className="cart-row-mods">{item.mods.join(' · ')}</div>
                   )}
                   {item.note && (
                     <div style={{ fontSize:12, color:'#e65100', fontStyle:'italic', marginTop:2 }}>📝 {item.note}</div>
                   )}
-                  <div style={{ fontWeight:800, color: CONFIG.accentColor, fontSize:14, marginTop:4 }}>
-                    {fmtPrice(item.unit_price)}
-                  </div>
+                  <div className="cart-row-price">{fmtPrice(item.unit_price)}</div>
                 </div>
-                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
-                  <div style={{ display:'flex', alignItems:'center', border:'1px solid #e0e0e0', borderRadius:8 }}>
-                    <button onClick={() => onUpdateQty(idx, item.qty - 1)}
-                      style={{ width:30, height:30, border:'none', background:'none', cursor:'pointer', fontSize:16 }}>−</button>
-                    <span style={{ width:22, textAlign:'center', fontWeight:700, fontSize:14 }}>{item.qty}</span>
-                    <button onClick={() => onUpdateQty(idx, item.qty + 1)}
-                      style={{ width:30, height:30, border:'none', background:'none', cursor:'pointer', fontSize:16 }}>+</button>
+                <div className="cart-qty-ctrl">
+                  <div className="cart-qty-row">
+                    <button className="cart-qty-btn" onClick={() => onUpdateQty(idx, item.qty-1)}>−</button>
+                    <span className="cart-qty-num">{item.qty}</span>
+                    <button className="cart-qty-btn" onClick={() => onUpdateQty(idx, item.qty+1)}>+</button>
                   </div>
-                  <button onClick={() => onRemove(idx)} style={{ fontSize:11, color:'#ccc', background:'none', border:'none', cursor:'pointer' }}>Remove</button>
+                  <button className="cart-remove" onClick={() => onRemove(idx)}>Remove</button>
                 </div>
               </div>
             ))
           )}
         </div>
 
-        {/* Footer */}
         {cart.length > 0 && (
-          <div style={{ padding:'16px 20px', borderTop:'1px solid #eee', background:'#fff' }}>
-            <div style={{ display:'flex', justifyContent:'space-between', fontSize:14, color:'#666', marginBottom:5 }}>
-              <span>Subtotal</span><span>{fmtPrice(subtotal)}</span>
+          <div className="cart-ftr">
+            <div className="cart-totals">
+              <div className="cart-total-row"><span>Subtotal</span><span>{fmtPrice(subtotal)}</span></div>
+              <div className="cart-total-row"><span>Tax ({(CONFIG.taxRate*100).toFixed(0)}%)</span><span>{fmtPrice(tax)}</span></div>
             </div>
-            <div style={{ display:'flex', justifyContent:'space-between', fontSize:14, color:'#666', marginBottom:14 }}>
-              <span>Tax (8%)</span><span>{fmtPrice(tax)}</span>
-            </div>
-            <div style={{ display:'flex', justifyContent:'space-between', fontWeight:900, fontSize:20, marginBottom:16 }}>
-              <span>Total</span><span style={{ color: CONFIG.accentColor }}>{fmtPrice(total)}</span>
-            </div>
-            <button className="btn btn-primary" onClick={onCheckout}
-              style={{ width:'100%', height:52, fontSize:17, borderRadius:12 }}>
+            <div className="cart-grand"><span>Total</span><span style={{ color:CONFIG.accentColor }}>{fmtPrice(total)}</span></div>
+            <button className="btn btn-red" onClick={onCheckout} style={{ width:'100%', height:52, fontSize:16, borderRadius:12 }}>
               💳 Checkout → {fmtPrice(total)}
             </button>
             <p style={{ fontSize:11, color:'#bbb', textAlign:'center', marginTop:10, display:'flex', alignItems:'center', justifyContent:'center', gap:4 }}>
-              <IconLock/> Secure payment powered by Stripe
+              <IconLock/> Secure payment via Stripe
             </p>
           </div>
         )}
@@ -756,281 +608,153 @@ function CartDrawer({ cart, open, onClose, onUpdateQty, onRemove, onClear, onChe
   );
 }
 
-// ── CHECKOUT FLOW ─────────────────────────────────────────────────────────────
-function CheckoutFlow({ cart, posUrl, isDemo, onClose, surchargeRate = 0.04, surchargeEnabled = true }) {
-  const [step, setStep]    = useState('info');  // info | review | paying
-  const [type, setType]    = useState('pickup');
-  const [name, setName]    = useState('');
-  const [phone, setPhone]  = useState('');
-  const [email, setEmail]  = useState('');
-  const [addr, setAddr]    = useState('');
-  const [note, setNote]    = useState('');
-  const [err, setErr]      = useState('');
+// ════════════════════════════════════════════════════════════════════════════
+// CHECKOUT FLOW
+// ════════════════════════════════════════════════════════════════════════════
+function CheckoutFlow({ cart, posUrl, isDemo, onClose }) {
+  const [step, setStep] = useState('info');
+  const [type, setType] = useState('pickup');
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [addr, setAddr] = useState('');
+  const [note, setNote] = useState('');
+  const [err, setErr] = useState('');
 
-  const [paymentMethod, setPaymentMethod] = useState('card'); // 'card' | 'ebt_pickup'
+  const subtotal = cart.reduce((s,i) => s + i.unit_price * i.qty, 0);
+  const tax      = subtotal * CONFIG.taxRate;
+  const total    = subtotal + tax;
 
-  const subtotal   = cart.reduce((s, i) => s + i.unit_price * i.qty, 0);
-  const tax        = subtotal * CONFIG.taxRate;
-  // Surcharge: only on card payments, NEVER on EBT (USDA/FTC law)
-  const surcharge  = (surchargeEnabled && paymentMethod === 'card') ? Math.round(subtotal * surchargeRate * 100) / 100 : 0;
-  const total      = subtotal + tax + surcharge;
-
-  const canProceed = name.trim().length >= 2 && (type !== 'delivery' || addr.trim().length > 5);
-
-  // EBT at pickup — sends order directly to POS without Stripe, no payment online
-  const placeEbtOrder = async () => {
-    setStep('paying'); setErr('');
-    if (isDemo) {
-      setTimeout(() => {
-        setErr('DEMO MODE: EBT order simulated. Connect your POS to go live.');
-        setStep('review');
-      }, 1200);
-      return;
-    }
-    try {
-      const orderUrl = (posUrl && posUrl.startsWith('http'))
-        ? `${posUrl}/order`
-        : `${window.location.origin}/order`;
-      const res = await fetch(orderUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'bypass-tunnel-reminder': 'true' },
-        body: JSON.stringify({
-          items: cart.map(i => ({ name:i.name, qty:i.qty, unit_price:i.unit_price, base_price:i.base_price, mods:i.mods||[], note:i.note||'' })),
-          customer_name:        name.trim(),
-          customer_phone:       phone.trim(),
-          fulfillment_type:     type,
-          address:              type === 'delivery' ? addr.trim() : '',
-          special_instructions: ['🏦 EBT/SNAP — PAY AT PICKUP (no surcharge)', note.trim()].filter(Boolean).join(' | '),
-          payment_method:       'ebt_pickup',
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        window.location.href = window.location.origin + `/?order_success=1&order=${data.order_number}`;
-      } else {
-        setErr(data.error || 'Could not place order. Check POS connection.');
-        setStep('review');
-      }
-    } catch(e) {
-      setErr(`Network error: ${e.message}`);
-      setStep('review');
-    }
+  const validate = () => {
+    if (!name.trim())  { setErr('Please enter your name'); return false; }
+    if (!phone.trim()) { setErr('Please enter your phone number'); return false; }
+    if (type === 'delivery' && !addr.trim()) { setErr('Please enter your delivery address'); return false; }
+    setErr(''); return true;
   };
 
-  const startStripeCheckout = async () => {
-    setStep('paying'); setErr('');
+  const submitOrder = async () => {
+    if (!validate()) return;
+    if (step === 'info') { setStep('review'); return; }
+    setStep('paying');
+
     if (isDemo) {
-      setTimeout(() => {
-        setErr('DEMO MODE: No real payment processed. Connect your POS to go live.');
-        setStep('review');
-      }, 1500);
+      setTimeout(() => { setErr('DEMO MODE: No payment processed. Connect your POS to go live.'); setStep('review'); }, 1500);
       return;
     }
+
     try {
-      // Build absolute checkout URL from connected POS tunnel URL
       const checkoutUrl = (posUrl && posUrl.startsWith('http'))
         ? `${posUrl}/api/create-checkout`
         : `${window.location.origin}/api/create-checkout`;
       const res = await fetch(checkoutUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'bypass-tunnel-reminder': 'true' },
+        method:'POST', headers:{ 'Content-Type':'application/json', 'bypass-tunnel-reminder':'true' },
         body: JSON.stringify({
-          cart: cart.map(i => ({
-            name:       i.name,
-            qty:        i.qty,
-            unit_price: i.unit_price,
-            base_price: i.base_price,
-            mods:       i.mods || [],
-            note:       i.note || '',
-          })),
-          customer_name:        name.trim(),
-          customer_phone:       phone.trim(),
-          customer_email:       email.trim(),
-          fulfillment_type:     type,
-          address:              type === 'delivery' ? addr.trim() : '',
-          special_instructions: note.trim(),
-          pos_tunnel_url:       posUrl,
-          payment_method:       paymentMethod,
+          cart: cart.map(i => ({ name:i.name, qty:i.qty, unit_price:i.unit_price, base_price:i.base_price, mods:i.mods||[], note:i.note||'' })),
+          customer_name: name.trim(), customer_phone: phone.trim(),
+          customer_email: email.trim(), delivery_address: addr.trim(),
+          fulfillment_type: type, order_note: note.trim(),
         }),
+        signal: AbortSignal.timeout(20000),
       });
       const data = await res.json();
-      if (data.ok && data.url) {
-        window.location.href = data.url;
-      } else {
-        setErr(data.error || 'Unable to create checkout session. Check POS connection.');
-        setStep('review');
-      }
-    } catch (e) {
-      setErr(`Network error: ${e.message}`);
-      setStep('review');
-    }
+      if (data.url) window.location.href = data.url;
+      else { setErr(data.error || 'Checkout failed. Please try again.'); setStep('review'); }
+    } catch(e) { setErr(e.message || 'Network error — check your connection.'); setStep('review'); }
   };
 
   return (
     <div className="overlay" onClick={e => e.target === e.currentTarget && step !== 'paying' && onClose()}>
       <div className="modal">
-        <div className="modal-header">
-          <h2>
-            {step === 'info'   ? '📋 Your Details' :
-             step === 'review' ? '✅ Review & Pay' : '⏳ Processing…'}
-          </h2>
+        <div className="modal-hdr">
+          <h2>{ step==='info' ? '📋 Your Details' : step==='review' ? '✅ Review & Pay' : '⏳ Processing…' }</h2>
           {step !== 'paying' && <button className="close-btn" onClick={onClose}><IconX/></button>}
         </div>
+        <div className="modal-body">
 
-        <div style={{ padding:'20px 24px 28px' }}>
-
-          {/* ── Step: paying ── */}
           {step === 'paying' && (
             <div style={{ textAlign:'center', padding:'48px 0' }}>
-              <div className="spinner" style={{ margin:'0 auto 20px', width:56, height:56 }}/>
+              <div className="spinner" style={{ margin:'0 auto 20px', width:52, height:52 }}/>
               <div style={{ fontWeight:700, fontSize:16, marginBottom:6 }}>Creating secure checkout…</div>
-              <div style={{ color:'#888', fontSize:13 }}>Redirecting you to Stripe to complete payment.</div>
+              <div style={{ color:'#888', fontSize:13 }}>Redirecting to Stripe…</div>
             </div>
           )}
 
-          {/* ── Step: info ── */}
           {step === 'info' && (
             <>
-              {/* Pickup / Delivery toggle */}
-              <div style={{ display:'flex', gap:10, marginBottom:22 }}>
-                {[{ v:'pickup', icon:'🏪', label:'Pickup' }, { v:'delivery', icon:'🛵', label:'Delivery' }].map(o => (
-                  <button key={o.v} onClick={() => setType(o.v)}
-                    style={{
-                      flex:1, padding:'13px', border:`2px solid ${type === o.v ? CONFIG.accentColor : '#e0e0e0'}`,
-                      borderRadius:10, background: type === o.v ? '#fdecea' : '#fafafa',
-                      color: type === o.v ? CONFIG.accentColor : '#555',
-                      fontWeight:700, fontSize:15, cursor:'pointer', transition:'all .15s',
-                    }}>
-                    <div style={{ fontSize:24, marginBottom:2 }}>{o.icon}</div>
-                    {o.label}
+              <div style={{ display:'flex', gap:10, marginBottom:18 }}>
+                {['pickup','delivery'].map(t => (
+                  <button key={t} onClick={() => setType(t)} className="btn"
+                    style={{ flex:1, background: type===t ? CONFIG.accentColor : '#f0f0f0', color: type===t ? '#fff' : '#333', fontSize:14 }}>
+                    {t === 'pickup' ? '🏪 Pickup' : '🛵 Delivery'}
                   </button>
                 ))}
               </div>
 
-              <div style={{ marginBottom:14 }}>
-                <label className="field-label">Your Name *</label>
-                <input className="input" value={name} onChange={e => setName(e.target.value)} placeholder="John Smith"/>
-              </div>
-              <div style={{ marginBottom:14 }}>
-                <label className="field-label">Phone Number</label>
-                <input className="input" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+1 (555) 000-0000" type="tel"/>
-              </div>
-              <div style={{ marginBottom:14 }}>
-                <label className="field-label">Email (receipt)</label>
-                <input className="input" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" type="email"/>
-              </div>
-              {type === 'delivery' && (
-                <div style={{ marginBottom:14 }}>
-                  <label className="field-label">Delivery Address *</label>
-                  <input className="input" value={addr} onChange={e => setAddr(e.target.value)} placeholder="123 Main St, City, State ZIP"/>
-                </div>
-              )}
-              <div style={{ marginBottom:22 }}>
-                <label className="field-label">Order Notes</label>
-                <textarea className="input" value={note} onChange={e => setNote(e.target.value)}
-                  placeholder="Allergies, gate code, preferences…" rows={2} style={{ resize:'none', fontFamily:'inherit' }}/>
+              <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                <div><label className="field-label">Full Name *</label>
+                  <input className="input" value={name} onChange={e=>setName(e.target.value)} placeholder="John Smith"/></div>
+                <div><label className="field-label">Phone Number *</label>
+                  <input className="input" type="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="(555) 123-4567"/></div>
+                <div><label className="field-label">Email (for receipt)</label>
+                  <input className="input" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></div>
+                {type === 'delivery' && (
+                  <div><label className="field-label">Delivery Address *</label>
+                    <input className="input" value={addr} onChange={e=>setAddr(e.target.value)} placeholder="123 Main St, City, State"/></div>
+                )}
+                <div><label className="field-label">Order Notes</label>
+                  <textarea className="input" value={note} onChange={e=>setNote(e.target.value)}
+                    placeholder="Any special requests?" rows={2} style={{ resize:'vertical' }}/></div>
               </div>
 
-              <button className="btn btn-primary" onClick={() => setStep('review')} disabled={!canProceed}
-                style={{ width:'100%', height:50, fontSize:16 }}>
+              {err && <div style={{ color:'#c62828', fontSize:13, marginTop:10, padding:'8px 12px', background:'#fdecea', borderRadius:6 }}>{err}</div>}
+
+              <button className="btn btn-red" onClick={submitOrder} style={{ width:'100%', height:50, fontSize:16, marginTop:18 }}>
                 Review Order →
               </button>
             </>
           )}
 
-          {/* ── Step: review ── */}
           {step === 'review' && (
             <>
-              {/* Order summary */}
-              <div style={{ background:'#fafafa', border:'1px solid #eee', borderRadius:10, padding:'14px 16px', marginBottom:14 }}>
-                {cart.map((item, idx) => (
-                  <div key={idx} style={{ display:'flex', justifyContent:'space-between', marginBottom:6, fontSize:14 }}>
-                    <span style={{ flex:1 }}>{item.qty}× {item.name}
-                      {item.mods?.length > 0 && <span style={{ color:'#888', fontSize:12 }}> ({item.mods.join(', ')})</span>}
-                    </span>
-                    <span style={{ fontWeight:700, flexShrink:0 }}>{fmtPrice(item.unit_price * item.qty)}</span>
+              <div style={{ background:'#f9f9f9', borderRadius:10, padding:'14px 16px', marginBottom:16 }}>
+                <div style={{ fontWeight:700, fontSize:14, marginBottom:10, color:'#555' }}>Order Summary</div>
+                {cart.map((item, i) => (
+                  <div key={i} style={{ display:'flex', justifyContent:'space-between', fontSize:14, marginBottom:6 }}>
+                    <span>{item.qty}× {item.name}{item.mods?.length ? ` (${item.mods.join(', ')})` : ''}</span>
+                    <span style={{ fontWeight:600 }}>{fmtPrice(item.unit_price * item.qty)}</span>
                   </div>
                 ))}
-                <div style={{ borderTop:'1px solid #eee', marginTop:10, paddingTop:10 }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:'#888', marginBottom:4 }}><span>Subtotal</span><span>{fmtPrice(subtotal)}</span></div>
-                  <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:'#888', marginBottom:4 }}><span>Tax ({Math.round(CONFIG.taxRate*100)}%)</span><span>{fmtPrice(tax)}</span></div>
-                  {surcharge > 0 && (
-                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:'#f97316', marginBottom:4 }}>
-                      <span>Online Convenience Fee ({(surchargeRate*100).toFixed(1)}%)</span>
-                      <span>+{fmtPrice(surcharge)}</span>
-                    </div>
-                  )}
-                  {paymentMethod === 'ebt_pickup' && (
-                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:'#16a34a', marginBottom:4 }}>
-                      <span>⚡ No surcharge on EBT</span><span>$0.00</span>
-                    </div>
-                  )}
-                  <div style={{ display:'flex', justifyContent:'space-between', fontWeight:900, fontSize:20 }}><span>Total</span><span style={{ color: CONFIG.accentColor }}>{fmtPrice(total)}</span></div>
+                <div style={{ borderTop:'1px solid #e0e0e0', paddingTop:8, marginTop:8 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:'#666', marginBottom:4 }}>
+                    <span>Subtotal</span><span>{fmtPrice(subtotal)}</span>
+                  </div>
+                  <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:'#666', marginBottom:8 }}>
+                    <span>Tax ({(CONFIG.taxRate*100).toFixed(0)}%)</span><span>{fmtPrice(tax)}</span>
+                  </div>
+                  <div style={{ display:'flex', justifyContent:'space-between', fontWeight:900, fontSize:18 }}>
+                    <span>Total</span><span style={{ color:CONFIG.accentColor }}>{fmtPrice(total)}</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Customer summary */}
-              <div style={{ background:'#f9f9f9', border:'1px solid #eee', borderRadius:10, padding:'12px 14px', marginBottom:14, fontSize:13, lineHeight:2 }}>
-                <div><strong>Name:</strong> {name}</div>
-                {phone && <div><strong>Phone:</strong> {phone}</div>}
-                {email && <div><strong>Email:</strong> {email}</div>}
-                <div><strong>Type:</strong> {type === 'pickup' ? '🏪 Pickup' : `🛵 Delivery → ${addr}`}</div>
-                {note && <div><strong>Notes:</strong> {note}</div>}
+              <div style={{ background:'#f9f9f9', borderRadius:10, padding:'12px 16px', marginBottom:16, fontSize:13, lineHeight:1.7 }}>
+                <strong>{type === 'pickup' ? '🏪 Pickup' : '🛵 Delivery'}</strong><br/>
+                {name} · {phone}{email ? ` · ${email}` : ''}
+                {type === 'delivery' && addr ? <><br/>{addr}</> : null}
+                {note ? <><br/>📝 {note}</> : null}
               </div>
 
-              {/* Payment method selector */}
-              <div style={{ marginBottom:14 }}>
-                <div style={{ fontSize:13, fontWeight:700, color:'#333', marginBottom:8 }}>How would you like to pay?</div>
-                <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                  <button onClick={() => setPaymentMethod('card')}
-                    style={{ flex:1, padding:'10px 12px', borderRadius:10, border: paymentMethod==='card' ? '2px solid '+CONFIG.accentColor : '2px solid #e0e0e0',
-                      background: paymentMethod==='card' ? '#fff5f5' : '#fafafa', cursor:'pointer', fontSize:13, fontWeight:600, color: paymentMethod==='card' ? CONFIG.accentColor : '#555' }}>
-                    💳 Credit / Debit Card
-                    {surchargeEnabled && <div style={{ fontSize:11, color:'#f97316', marginTop:2 }}>+{(surchargeRate*100).toFixed(1)}% convenience fee</div>}
-                  </button>
-                  <button onClick={() => setPaymentMethod('ebt_pickup')}
-                    style={{ flex:1, padding:'10px 12px', borderRadius:10, border: paymentMethod==='ebt_pickup' ? '2px solid #16a34a' : '2px solid #e0e0e0',
-                      background: paymentMethod==='ebt_pickup' ? '#f0fdf4' : '#fafafa', cursor:'pointer', fontSize:13, fontWeight:600, color: paymentMethod==='ebt_pickup' ? '#15803d' : '#555' }}>
-                    🏦 EBT / SNAP at Pickup
-                    <div style={{ fontSize:11, color:'#16a34a', marginTop:2 }}>No surcharge · Pay in store</div>
-                  </button>
-                </div>
-              </div>
-
-              {/* Stripe trust badge */}
-              {paymentMethod === 'card' && (
-              <div style={{ background:'#f0faf0', border:'1px solid #c8e6c9', borderRadius:10, padding:'10px 14px', marginBottom:16,
-                fontSize:12, color:'#444', display:'flex', gap:8, alignItems:'flex-start' }}>
-                <span style={{ fontSize:20, flexShrink:0 }}>🔒</span>
-                <span>You'll be securely redirected to <strong>Stripe</strong> to complete payment. <strong>Your order only goes to the kitchen after successful payment.</strong></span>
-              </div>
-              )}
-              {paymentMethod === 'ebt_pickup' && (
-              <div style={{ background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:10, padding:'10px 14px', marginBottom:16,
-                fontSize:12, color:'#444', display:'flex', gap:8, alignItems:'flex-start' }}>
-                <span style={{ fontSize:20, flexShrink:0 }}>🏦</span>
-                <span><strong>EBT / SNAP accepted at pickup.</strong> Place your order now and pay with your EBT card when you arrive. No surcharge applies per USDA regulations.</span>
-              </div>
-              )}
-
-              {err && (
-                <div style={{ background:'#fdecea', border:'1px solid #ffcdd2', borderRadius:8, padding:'10px 14px', marginBottom:14, color:'#c62828', fontSize:13 }}>
-                  ⚠️ {err}
-                </div>
-              )}
+              {err && <div style={{ color:'#c62828', fontSize:13, marginBottom:12, padding:'8px 12px', background:'#fdecea', borderRadius:6 }}>{err}</div>}
 
               <div style={{ display:'flex', gap:10 }}>
-                <button className="btn btn-gray" onClick={() => setStep('info')} style={{ flex:1 }}>← Back</button>
-                {paymentMethod === 'card' ? (
-                  <button className="btn btn-primary" onClick={startStripeCheckout} style={{ flex:2, fontSize:16, height:50 }}>
-                    💳 Pay {fmtPrice(total)} via Stripe
-                  </button>
-                ) : (
-                  <button className="btn btn-primary" onClick={placeEbtOrder} style={{ flex:2, fontSize:16, height:50, background:'#16a34a' }}>
-                    🏦 Place Order · Pay EBT at Pickup
-                  </button>
-                )}
+                <button className="btn btn-gray" onClick={() => { setStep('info'); setErr(''); }} style={{ padding:'12px 20px' }}>← Back</button>
+                <button className="btn btn-red" onClick={submitOrder} style={{ flex:1, height:50, fontSize:16 }}>
+                  💳 Pay {fmtPrice(total)} →
+                </button>
               </div>
+              <p style={{ fontSize:11, color:'#bbb', textAlign:'center', marginTop:10, display:'flex', alignItems:'center', justifyContent:'center', gap:4 }}>
+                <IconLock/> Secure payment via Stripe
+              </p>
             </>
           )}
         </div>
@@ -1039,50 +763,45 @@ function CheckoutFlow({ cart, posUrl, isDemo, onClose, surchargeRate = 0.04, sur
   );
 }
 
-// ── SUCCESS / CANCELLED BANNERS ───────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════
+// SUCCESS / CANCELLED BANNERS
+// ════════════════════════════════════════════════════════════════════════════
 function SuccessBanner({ orderNum, onClose }) {
   return (
-    <div style={{ background:'#e8f5e9', border:'2px solid #4caf50', borderRadius:14, padding:'20px 24px',
-      margin:'16px 20px', display:'flex', gap:16, alignItems:'center', animation:'fadeIn .4s' }}>
-      <span style={{ fontSize:44 }}>✅</span>
-      <div style={{ flex:1 }}>
-        <div style={{ fontWeight:900, fontSize:19, color:'#2e7d32', marginBottom:4 }}>Payment Successful — Order Placed!</div>
-        <div style={{ color:'#555', fontSize:14 }}>Order <strong>#{orderNum}</strong> has been sent to the kitchen. We'll have it ready soon!</div>
-        <div style={{ color:'#888', fontSize:13, marginTop:4 }}>You'll receive a confirmation if you provided your email.</div>
+    <div style={{ background:'#e8f5e9', border:'2px solid #4caf50', borderRadius:14, padding:'20px 24px', margin:'16px 20px', display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, animation:'slideUp .3s ease' }}>
+      <div>
+        <div style={{ fontWeight:800, fontSize:17, color:'#2e7d32', marginBottom:4 }}>🎉 Order Placed!</div>
+        <div style={{ fontSize:14, color:'#388e3c' }}>Your order is confirmed. Kitchen is on it!{orderNum ? ` Order #${orderNum}.` : ''}</div>
       </div>
-      <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#888' }}>✕</button>
+      <button onClick={onClose} className="close-btn" style={{ background:'#c8e6c9' }}><IconX/></button>
     </div>
   );
 }
 function CancelledBanner({ onClose }) {
   return (
-    <div style={{ background:'#fff3e0', border:'2px solid #ff9800', borderRadius:14, padding:'16px 24px',
-      margin:'16px 20px', display:'flex', gap:12, alignItems:'center', animation:'fadeIn .4s' }}>
-      <span style={{ fontSize:32 }}>⚠️</span>
-      <div style={{ flex:1 }}>
-        <strong>Payment cancelled.</strong> Your cart is still saved — you can try again anytime.
+    <div style={{ background:'#fff3e0', border:'2px solid #ff9800', borderRadius:14, padding:'20px 24px', margin:'16px 20px', display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12 }}>
+      <div>
+        <div style={{ fontWeight:800, fontSize:17, color:'#e65100', marginBottom:4 }}>Order Cancelled</div>
+        <div style={{ fontSize:14, color:'#ef6c00' }}>Payment was cancelled. Your cart is still saved — try again anytime.</div>
       </div>
-      <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#888' }}>✕</button>
+      <button onClick={onClose} className="close-btn" style={{ background:'#ffe0b2' }}><IconX/></button>
     </div>
   );
 }
 
-// ── FLOATING CART BUTTON (mobile) ─────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════
+// FLOATING CART BUTTON (mobile only — shown via CSS)
+// ════════════════════════════════════════════════════════════════════════════
 function FloatingCart({ count, total, onClick }) {
   if (count === 0) return null;
   return (
-    <div style={{ position:'fixed', bottom:24, left:'50%', transform:'translateX(-50%)', zIndex:190, animation:'slideUp .3s ease' }}>
-      <button onClick={onClick} style={{
-        background: CONFIG.accentColor, color:'#fff', border:'none',
-        borderRadius:30, padding:'14px 28px', fontSize:16, fontWeight:800,
-        boxShadow:'0 6px 24px rgba(200,16,46,.4)', cursor:'pointer',
-        display:'flex', alignItems:'center', gap:12, whiteSpace:'nowrap',
-        animation:'pulse 2s ease infinite',
-      }}>
-        <IconCart/>
-        <span>{count} item{count !== 1 ? 's' : ''}</span>
-        <span style={{ background:'rgba(255,255,255,.25)', borderRadius:16, padding:'3px 12px' }}>{fmtPrice(total)}</span>
-        <span>→</span>
+    <div className="float-cart">
+      <button className="float-cart-btn" onClick={onClick}>
+        <span style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <IconCart/>
+          <span>View Order</span>
+        </span>
+        <span className="float-cart-count">{count} item{count!==1?'s':''} · {fmtPrice(total)}</span>
       </button>
     </div>
   );
@@ -1092,30 +811,20 @@ function FloatingCart({ count, total, onClick }) {
 // MAIN APP
 // ════════════════════════════════════════════════════════════════════════════
 function App() {
-  // POS connection
   const posUrlParam = PARAMS.get('pos') || '';
-  const [posUrl, setPosUrl]     = useLocalStorage('bfm_pos_url_v2', posUrlParam || null);
+  const [posUrl, setPosUrl]       = useLocalStorage('bfm_pos_url_v2', posUrlParam || null);
   const [storeInfo, setStoreInfo] = useState(null);
-  const [isDemo, setIsDemo]     = useState(false);
-
-  // Menu
-  const [menu, setMenu]         = useState(null);
-  const [loading, setLoading]   = useState(false);
-  const [menuError, setMenuErr] = useState('');
-
-  // Navigation
+  const [isDemo, setIsDemo]       = useState(false);
+  const [menu, setMenu]           = useState(null);
+  const [loading, setLoading]     = useState(false);
+  const [menuError, setMenuErr]   = useState('');
   const [activeCat, setActiveCat] = useState(null);
   const [search, setSearch]       = useState('');
-
-  // Cart
-  const [cart, setCart] = useLocalStorage('bfm_cart_v3', []);
-
-  // UI state
+  const [cart, setCart]           = useLocalStorage('bfm_cart_v3', []);
   const [cartOpen, setCartOpen]   = useState(false);
   const [modItem, setModItem]     = useState(null);
   const [checkout, setCheckout]   = useState(false);
 
-  // Stripe return banner
   const [banner, setBanner] = useState(() => {
     if (PARAMS.get('order_success'))   return { type:'success',   order: PARAMS.get('order') || '' };
     if (PARAMS.get('order_cancelled')) return { type:'cancelled' };
@@ -1125,20 +834,13 @@ function App() {
   useEffect(() => {
     if (banner) {
       window.history.replaceState({}, '', window.location.pathname);
-      if (banner.type === 'success') {
-        setCart([]);
-        toast('🎉 Order placed! Kitchen is on it.', 'success', 5000);
-      }
+      if (banner.type === 'success') { setCart([]); toast('🎉 Order placed! Kitchen is on it.', 'success', 5000); }
     }
   }, []);
 
-  // Load menu from POS
   const loadMenu = useCallback(async () => {
-    // posUrl can be '' (same-origin relative) or full URL
     if (posUrl === null || posUrl === undefined) return;
     setLoading(true); setMenuErr('');
-
-    // Helper: try fetching menu+store-info from a given base URL
     const tryFetch = async (base) => {
       const [mr, sr] = await Promise.allSettled([
         posFetch(`${base}/menu`,       { signal: AbortSignal.timeout(8000) }),
@@ -1146,215 +848,149 @@ function App() {
       ]);
       return { mr, sr };
     };
-
     let base = posUrl || '';
     let { mr, sr } = await tryFetch(base);
-
-    // If failed AND we're on GitHub Pages, silently try the latest tunnel URL from GitHub
-    const isGHPages = window.location.origin.includes('github.io');
+    const isGHPages = window.location.origin.includes('github.io') || window.location.hostname.includes('riceplusgrill.com');
     if (isGHPages && (mr.status === 'rejected' || !mr.value?.ok)) {
       try {
-        const reg = await fetch('https://raw.githubusercontent.com/mouyleang1984/bfm-ordering/main/tunnel-url.txt?t=' + Date.now(), { cache: 'no-store', signal: AbortSignal.timeout(5000) });
+        const reg = await fetch('https://raw.githubusercontent.com/mouyleang1984/bfm-ordering/main/tunnel-url.txt?t=' + Date.now(), { cache:'no-store', signal: AbortSignal.timeout(5000) });
         if (reg.ok) {
           const freshUrl = (await reg.text()).trim();
           if (freshUrl && freshUrl.startsWith('https://') && freshUrl !== posUrl) {
-            console.log('[App] Stale URL — retrying with fresh tunnel:', freshUrl);
             const retry = await tryFetch(freshUrl);
             if (retry.mr.status === 'fulfilled' && retry.mr.value?.ok) {
-              setPosUrl(freshUrl);   // update localStorage
-              base = freshUrl;
-              mr   = retry.mr;
-              sr   = retry.sr;
+              setPosUrl(freshUrl); base = freshUrl; mr = retry.mr; sr = retry.sr;
             }
           }
         }
       } catch(_) {}
     }
-
     if (mr.status === 'fulfilled' && mr.value.ok) {
       setMenu(mr.value);
       if (mr.value.categories?.length) setActiveCat(mr.value.categories[0].id);
     } else {
-      setMenuErr(mr.status === 'rejected' ? (mr.reason?.message || 'POS is not running. Start the POS app and try again.') : mr.value?.error || 'Failed to load menu');
+      setMenuErr(mr.status === 'rejected' ? (mr.reason?.message || 'POS is not running.') : mr.value?.error || 'Failed to load menu');
     }
     if (sr.status === 'fulfilled' && sr.value.ok) setStoreInfo(sr.value);
     setLoading(false);
   }, [posUrl]);
 
-  // Auto-connect on first load
   useEffect(() => {
     if (posUrl === null && !isDemo) {
       const origin = window.location.origin;
-      const isTrycloudflare = origin.includes('trycloudflare.com');
-      const isLocalhost = origin.includes('localhost') || origin.includes('127.0.0.1');
-      if (isTrycloudflare || isLocalhost) {
-        // Served directly from POS tunnel — use relative paths
+      if (origin.includes('trycloudflare.com') || origin.includes('localhost') || origin.includes('127.0.0.1')) {
         setPosUrl('');
-        console.log('[App] Same-origin mode:', origin);
       }
-      // Otherwise → SetupScreen handles auto-discovery via tunnel.json
     }
   }, []);
 
   useEffect(() => { if (posUrl !== null && posUrl !== undefined && !isDemo) loadMenu(); }, [posUrl, loadMenu, isDemo]);
 
-  // Use demo menu
   const useDemo = () => {
     setIsDemo(true); setPosUrl('');
     setMenu(DEMO_MENU);
     setActiveCat(DEMO_MENU.categories[0].id);
   };
 
-  // Filtered items
-  const displayItems = useMemo(() => {
-    if (!menu) return [];
-    const all = menu.items || [];
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      return all.filter(i => i.name.toLowerCase().includes(q) || (i.description || '').toLowerCase().includes(q));
-    }
-    return activeCat ? all.filter(i => i.category_id === activeCat) : all;
-  }, [menu, search, activeCat]);
-
-  // Cart helpers
-  const cartCount = cart.reduce((s, i) => s + i.qty, 0);
-  const cartTotal = cart.reduce((s, i) => s + i.unit_price * i.qty, 0);
-
-  const cartQtyFor = (itemId) => cart.filter(i => i.id === itemId).reduce((s, i) => s + i.qty, 0);
+  const cartCount = cart.reduce((s,i) => s + i.qty, 0);
+  const cartTotal = cart.reduce((s,i) => s + i.unit_price * i.qty, 0);
+  const cartQtyFor = (id) => cart.filter(i => i.id === id).reduce((s,i) => s + i.qty, 0);
 
   const handleAdd = (item) => {
-    if ((item.modifier_groups || []).length > 0) {
-      setModItem(item);
-    } else {
-      addToCart({ ...item, qty: 1, unit_price: item.base_price, mods: [], note: '' });
-    }
+    if ((item.modifier_groups || []).length > 0) { setModItem(item); }
+    else { addToCart({ ...item, qty:1, unit_price:item.base_price, mods:[], note:'' }); }
   };
-
   const addToCart = (item) => {
     setCart(prev => {
       const modsKey = JSON.stringify(item.mods || []);
-      const idx = prev.findIndex(c => c.id === item.id && JSON.stringify(c.mods || []) === modsKey && !c.note && !item.note);
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = { ...next[idx], qty: next[idx].qty + item.qty };
-        return next;
-      }
+      const idx = prev.findIndex(c => c.id === item.id && JSON.stringify(c.mods||[]) === modsKey && !c.note && !item.note);
+      if (idx >= 0) { const n=[...prev]; n[idx]={...n[idx],qty:n[idx].qty+item.qty}; return n; }
       return [...prev, item];
     });
-    toast(`${item.name} added!`, 'success', 2000);
+    toast(`${item.name} added!`, 'success', 1800);
   };
 
-  // Show setup screen if no POS URL configured
   if (posUrl === null && !isDemo) {
     return <SetupScreen onConnect={(url, info) => { setPosUrl(url); setStoreInfo(info); }} onSkip={useDemo}/>;
   }
 
-  const storeName       = storeInfo?.name || menu?.store_name || CONFIG.storeName;
-  const storeHours      = storeInfo?.hours || null;
-  const surchargeRate    = storeInfo?.surcharge_rate    ?? 0.04;
-  const surchargeEnabled = storeInfo?.surcharge_enabled ?? true;
+  const storeName = storeInfo?.name || menu?.store_name || CONFIG.storeName;
 
   return (
-    <div style={{ minHeight:'100vh', paddingBottom:100 }}>
+    <div style={{ minHeight:'100vh' }}>
       <Header
-        storeName={storeName} storeHours={storeHours} isDemo={isDemo}
+        storeName={storeName} isDemo={isDemo}
         cartCount={cartCount} cartTotal={cartTotal}
         onCartOpen={() => setCartOpen(true)}
         search={search} onSearch={v => { setSearch(v); if (v) setActiveCat(null); }}
       />
 
-      {/* Hero — only show on category view, not search */}
-      {!search && !loading && menu && (
-        <HeroBanner onStartOrder={() => { document.querySelector('[data-cat]')?.parentElement?.scrollIntoView({ behavior:'smooth' }); }}/>
-      )}
+      {!search && !loading && menu && <HeroBanner/>}
 
-      {/* Banners */}
       {banner?.type === 'success'   && <SuccessBanner   orderNum={banner.order} onClose={() => setBanner(null)}/>}
       {banner?.type === 'cancelled' && <CancelledBanner onClose={() => setBanner(null)}/>}
 
-      {/* Loading */}
       {loading && (
-        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'80px 20px', gap:16 }}>
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'80px 20px', gap:14 }}>
           <div className="spinner"/>
-          <p style={{ color:'#888', fontSize:15 }}>Loading menu from POS…</p>
+          <p style={{ color:'#888', fontSize:14 }}>Loading menu…</p>
         </div>
       )}
 
-      {/* Error */}
       {!loading && menuError && (
-        <div style={{ maxWidth:600, margin:'40px auto', padding:'0 20px', textAlign:'center' }}>
-          <div style={{ background:'#fdecea', border:'1px solid #ffcdd2', borderRadius:14, padding:'32px 24px' }}>
-            <div style={{ fontSize:48, marginBottom:12 }}>⚠️</div>
-            <div style={{ fontWeight:700, fontSize:18, color:'#c62828', marginBottom:8 }}>Couldn't reach POS</div>
-            <div style={{ color:'#555', fontSize:14, marginBottom:20 }}>{menuError}</div>
+        <div style={{ maxWidth:600, margin:'40px auto', padding:'0 20px' }}>
+          <div style={{ background:'#fdecea', border:'1px solid #ffcdd2', borderRadius:12, padding:'28px 20px', textAlign:'center' }}>
+            <div style={{ fontSize:44, marginBottom:10 }}>⚠️</div>
+            <div style={{ fontWeight:700, fontSize:17, color:'#c62828', marginBottom:6 }}>Couldn't reach POS</div>
+            <div style={{ color:'#555', fontSize:14, marginBottom:18 }}>{menuError}</div>
             <div style={{ display:'flex', gap:10, justifyContent:'center', flexWrap:'wrap' }}>
-              <button className="btn btn-primary" onClick={() => { setPosUrl(null); }}>Auto-Reconnect</button>
+              <button className="btn btn-red" onClick={() => setPosUrl(null)}>Auto-Reconnect</button>
               <button className="btn btn-outline" onClick={loadMenu}>Retry</button>
-              <button className="btn btn-outline" onClick={useDemo}>Use Demo Menu</button>
-              <button className="btn btn-gray" onClick={() => { setPosUrl(''); setIsDemo(false); }}>Change POS URL</button>
+              <button className="btn btn-gray" onClick={useDemo}>Demo Menu</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Menu */}
       {!loading && menu && (
         <>
+          {/* Mobile horizontal category tabs */}
           {!search && (
-            <CategoryTabs categories={menu.categories} active={activeCat} onSelect={id => { setActiveCat(id); setSearch(''); }}/>
+            <CategoryScrollBar categories={menu.categories} active={activeCat} onSelect={id => { setActiveCat(id); setSearch(''); }}/>
           )}
-          <div style={{ maxWidth:1100, margin:'0 auto', padding:'20px 20px' }}>
-            {search && (
-              <div style={{ marginBottom:16, color:'#666', fontSize:14 }}>
-                {displayItems.length} result{displayItems.length !== 1 ? 's' : ''} for "<strong>{search}</strong>"
-                <button onClick={() => setSearch('')} style={{ marginLeft:10, color: CONFIG.accentColor, background:'none', border:'none', cursor:'pointer', fontWeight:700 }}>Clear</button>
-              </div>
-            )}
-            {displayItems.length === 0 ? (
-              <div style={{ textAlign:'center', padding:'60px 0', color:'#aaa' }}>
-                <div style={{ fontSize:48, marginBottom:10 }}>🍽️</div>
-                <div style={{ fontWeight:700, fontSize:17 }}>{search ? 'No items found' : 'Nothing here yet'}</div>
-                <div style={{ fontSize:13, marginTop:4 }}>{search ? 'Try searching something else' : 'Check another category'}</div>
-              </div>
-            ) : (
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(200px, 1fr))', gap:16 }}>
-                {displayItems.map(item => (
-                  <ItemCard key={item.id} item={item} cartQty={cartQtyFor(item.id)} onAdd={handleAdd}/>
-                ))}
-              </div>
-            )}
-          </div>
+
+          {/* Wawa-style layout: sidebar + item list */}
+          <MenuLayout
+            menu={menu} search={search}
+            activeCat={activeCat} onCatSelect={id => { setActiveCat(id); setSearch(''); }}
+            cartQtyFor={cartQtyFor} onAdd={handleAdd}
+          />
         </>
       )}
 
-      {/* Modifier modal */}
       {modItem && (
         <ModifierModal item={modItem} onClose={() => setModItem(null)} onAddToCart={item => { addToCart(item); setModItem(null); }}/>
       )}
 
-      {/* Cart Drawer */}
       <CartDrawer
         cart={cart} open={cartOpen} onClose={() => setCartOpen(false)}
         onUpdateQty={(idx, qty) => {
-          if (qty <= 0) setCart(p => p.filter((_, i) => i !== idx));
-          else setCart(p => p.map((x, i) => i === idx ? { ...x, qty } : x));
+          if (qty <= 0) setCart(p => p.filter((_,i) => i !== idx));
+          else setCart(p => p.map((x,i) => i === idx ? {...x, qty} : x));
         }}
-        onRemove={idx => setCart(p => p.filter((_, i) => i !== idx))}
+        onRemove={idx => setCart(p => p.filter((_,i) => i !== idx))}
         onClear={() => { setCart([]); setCartOpen(false); toast('Cart cleared', 'info'); }}
         onCheckout={() => { setCartOpen(false); setCheckout(true); }}
       />
 
-      {/* Checkout */}
       {checkout && (
-        <CheckoutFlow cart={cart} posUrl={posUrl} isDemo={isDemo} onClose={() => setCheckout(false)}
-          surchargeRate={surchargeRate} surchargeEnabled={surchargeEnabled}/>
+        <CheckoutFlow cart={cart} posUrl={posUrl} isDemo={isDemo} onClose={() => setCheckout(false)}/>
       )}
 
-      {/* Floating cart (mobile) */}
+      {/* Floating cart button — CSS shows this on mobile only */}
       <FloatingCart count={cartCount} total={cartTotal * (1 + CONFIG.taxRate)} onClick={() => setCartOpen(true)}/>
 
-      {/* Footer */}
-      <footer style={{ textAlign:'center', padding:'40px 20px 20px', color:'#bbb', fontSize:12, marginTop:40, borderTop:'1px solid #eee' }}>
+      <footer style={{ textAlign:'center', padding:'40px 20px 120px', color:'#ccc', fontSize:12, borderTop:'1px solid #eee', marginTop:20 }}>
         <p>© {new Date().getFullYear()} {CONFIG.storeName} — Online Ordering</p>
         <p style={{ marginTop:4 }}>Powered by Stripe · Secure payments · No account needed</p>
         {!isDemo && posUrl && (
