@@ -812,13 +812,15 @@ function FloatingCart({ count, total, onClick }) {
 // ════════════════════════════════════════════════════════════════════════════
 function App() {
   const posUrlParam = PARAMS.get('pos') || '';
-  const [posUrl, setPosUrl]       = useLocalStorage('bfm_pos_url_v2', posUrlParam || null);
+  // ?skip=1 jumps straight to demo menu (for testing layout)
+  const skipToDemo = PARAMS.get('skip') === '1';
+  const [posUrl, setPosUrl]       = useLocalStorage('bfm_pos_url_v2', PARAMS.get('demo') === '1' ? '' : (posUrlParam || null));
   const [storeInfo, setStoreInfo] = useState(null);
-  const [isDemo, setIsDemo]       = useState(false);
-  const [menu, setMenu]           = useState(null);
+  const [isDemo, setIsDemo]       = useState(PARAMS.get('demo') === '1');
+  const [menu, setMenu]           = useState(PARAMS.get('demo') === '1' ? DEMO_MENU : null);
   const [loading, setLoading]     = useState(false);
   const [menuError, setMenuErr]   = useState('');
-  const [activeCat, setActiveCat] = useState(null);
+  const [activeCat, setActiveCat] = useState(PARAMS.get('demo') === '1' ? DEMO_MENU.categories[0].id : null);
   const [search, setSearch]       = useState('');
   const [cart, setCart]           = useLocalStorage('bfm_cart_v3', []);
   const [cartOpen, setCartOpen]   = useState(false);
@@ -910,7 +912,11 @@ function App() {
     toast(`${item.name} added!`, 'success', 1800);
   };
 
-  if (posUrl === null && !isDemo) {
+  if (skipToDemo && !isDemo) {
+    setTimeout(() => { setIsDemo(true); setPosUrl(''); setMenu(DEMO_MENU); setActiveCat(DEMO_MENU.categories[0].id); }, 0);
+  }
+
+  if (posUrl === null && !isDemo && !skipToDemo) {
     return <SetupScreen onConnect={(url, info) => { setPosUrl(url); setStoreInfo(info); }} onSkip={useDemo}/>;
   }
 
