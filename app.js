@@ -759,7 +759,7 @@ function CartDrawer({ cart, open, onClose, onUpdateQty, onRemove, onClear, onChe
 }
 
 // ── CHECKOUT FLOW ─────────────────────────────────────────────────────────────
-function CheckoutFlow({ cart, posUrl, isDemo, onClose }) {
+function CheckoutFlow({ cart, posUrl, isDemo, onClose, surchargeRate = 0.04, surchargeEnabled = true }) {
   const [step, setStep]    = useState('info');  // info | review | paying
   const [type, setType]    = useState('pickup');
   const [name, setName]    = useState('');
@@ -769,11 +769,55 @@ function CheckoutFlow({ cart, posUrl, isDemo, onClose }) {
   const [note, setNote]    = useState('');
   const [err, setErr]      = useState('');
 
-  const subtotal = cart.reduce((s, i) => s + i.unit_price * i.qty, 0);
-  const tax      = subtotal * CONFIG.taxRate;
-  const total    = subtotal + tax;
+  const [paymentMethod, setPaymentMethod] = useState('card'); // 'card' | 'ebt_pickup'
+
+  const subtotal   = cart.reduce((s, i) => s + i.unit_price * i.qty, 0);
+  const tax        = subtotal * CONFIG.taxRate;
+  // Surcharge: only on card payments, NEVER on EBT (USDA/FTC law)
+  const surcharge  = (surchargeEnabled && paymentMethod === 'card') ? Math.round(subtotal * surchargeRate * 100) / 100 : 0;
+  const total      = subtotal + tax + surcharge;
 
   const canProceed = name.trim().length >= 2 && (type !== 'delivery' || addr.trim().length > 5);
+
+  // EBT at pickup — sends order directly to POS without Stripe, no payment online
+  const placeEbtOrder = async () => {
+    setStep('paying'); setErr('');
+    if (isDemo) {
+      setTimeout(() => {
+        setErr('DEMO MODE: EBT order simulated. Connect your POS to go live.');
+        setStep('review');
+      }, 1200);
+      return;
+    }
+    try {
+      const orderUrl = (posUrl && posUrl.startsWith('http'))
+        ? `${posUrl}/order`
+        : `${window.location.origin}/order`;
+      const res = await fetch(orderUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'bypass-tunnel-reminder': 'true' },
+        body: JSON.stringify({
+          items: cart.map(i => ({ name:i.name, qty:i.qty, unit_price:i.unit_price, base_price:i.base_price, mods:i.mods||[], note:i.note||'' })),
+          customer_name:        name.trim(),
+          customer_phone:       phone.trim(),
+          fulfillment_type:     type,
+          address:              type === 'delivery' ? addr.trim() : '',
+          special_instructions: ['🏦 EBT/SNAP — PAY AT PICKUP (no surcharge)', note.trim()].filter(Boolean).join(' | '),
+          payment_method:       'ebt_pickup',
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        window.location.href = window.location.origin + `/?order_success=1&order=${data.order_number}`;
+      } else {
+        setErr(data.error || 'Could not place order. Check POS connection.');
+        setStep('review');
+      }
+    } catch(e) {
+      setErr(`Network error: ${e.message}`);
+      setStep('review');
+    }
+  };
 
   const startStripeCheckout = async () => {
     setStep('paying'); setErr('');
@@ -808,6 +852,7 @@ function CheckoutFlow({ cart, posUrl, isDemo, onClose }) {
           address:              type === 'delivery' ? addr.trim() : '',
           special_instructions: note.trim(),
           pos_tunnel_url:       posUrl,
+          payment_method:       paymentMethod,
         }),
       });
       const data = await res.json();
@@ -910,7 +955,18 @@ function CheckoutFlow({ cart, posUrl, isDemo, onClose }) {
                 ))}
                 <div style={{ borderTop:'1px solid #eee', marginTop:10, paddingTop:10 }}>
                   <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:'#888', marginBottom:4 }}><span>Subtotal</span><span>{fmtPrice(subtotal)}</span></div>
-                  <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:'#888', marginBottom:10 }}><span>Tax (8%)</span><span>{fmtPrice(tax)}</span></div>
+                  <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:'#888', marginBottom:4 }}><span>Tax ({Math.round(CONFIG.taxRate*100)}%)</span><span>{fmtPrice(tax)}</span></div>
+                  {surcharge > 0 && (
+                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:'#f97316', marginBottom:4 }}>
+                      <span>Online Convenience Fee ({(surchargeRate*100).toFixed(1)}%)</span>
+                      <span>+{fmtPrice(surcharge)}</span>
+                    </div>
+                  )}
+                  {paymentMethod === 'ebt_pickup' && (
+                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:'#16a34a', marginBottom:4 }}>
+                      <span>⚡ No surcharge on EBT</span><span>$0.00</span>
+                    </div>
+                  )}
                   <div style={{ display:'flex', justifyContent:'space-between', fontWeight:900, fontSize:20 }}><span>Total</span><span style={{ color: CONFIG.accentColor }}>{fmtPrice(total)}</span></div>
                 </div>
               </div>
@@ -924,12 +980,40 @@ function CheckoutFlow({ cart, posUrl, isDemo, onClose }) {
                 {note && <div><strong>Notes:</strong> {note}</div>}
               </div>
 
+              {/* Payment method selector */}
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#333', marginBottom:8 }}>How would you like to pay?</div>
+                <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                  <button onClick={() => setPaymentMethod('card')}
+                    style={{ flex:1, padding:'10px 12px', borderRadius:10, border: paymentMethod==='card' ? '2px solid '+CONFIG.accentColor : '2px solid #e0e0e0',
+                      background: paymentMethod==='card' ? '#fff5f5' : '#fafafa', cursor:'pointer', fontSize:13, fontWeight:600, color: paymentMethod==='card' ? CONFIG.accentColor : '#555' }}>
+                    💳 Credit / Debit Card
+                    {surchargeEnabled && <div style={{ fontSize:11, color:'#f97316', marginTop:2 }}>+{(surchargeRate*100).toFixed(1)}% convenience fee</div>}
+                  </button>
+                  <button onClick={() => setPaymentMethod('ebt_pickup')}
+                    style={{ flex:1, padding:'10px 12px', borderRadius:10, border: paymentMethod==='ebt_pickup' ? '2px solid #16a34a' : '2px solid #e0e0e0',
+                      background: paymentMethod==='ebt_pickup' ? '#f0fdf4' : '#fafafa', cursor:'pointer', fontSize:13, fontWeight:600, color: paymentMethod==='ebt_pickup' ? '#15803d' : '#555' }}>
+                    🏦 EBT / SNAP at Pickup
+                    <div style={{ fontSize:11, color:'#16a34a', marginTop:2 }}>No surcharge · Pay in store</div>
+                  </button>
+                </div>
+              </div>
+
               {/* Stripe trust badge */}
+              {paymentMethod === 'card' && (
               <div style={{ background:'#f0faf0', border:'1px solid #c8e6c9', borderRadius:10, padding:'10px 14px', marginBottom:16,
                 fontSize:12, color:'#444', display:'flex', gap:8, alignItems:'flex-start' }}>
                 <span style={{ fontSize:20, flexShrink:0 }}>🔒</span>
                 <span>You'll be securely redirected to <strong>Stripe</strong> to complete payment. <strong>Your order only goes to the kitchen after successful payment.</strong></span>
               </div>
+              )}
+              {paymentMethod === 'ebt_pickup' && (
+              <div style={{ background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:10, padding:'10px 14px', marginBottom:16,
+                fontSize:12, color:'#444', display:'flex', gap:8, alignItems:'flex-start' }}>
+                <span style={{ fontSize:20, flexShrink:0 }}>🏦</span>
+                <span><strong>EBT / SNAP accepted at pickup.</strong> Place your order now and pay with your EBT card when you arrive. No surcharge applies per USDA regulations.</span>
+              </div>
+              )}
 
               {err && (
                 <div style={{ background:'#fdecea', border:'1px solid #ffcdd2', borderRadius:8, padding:'10px 14px', marginBottom:14, color:'#c62828', fontSize:13 }}>
@@ -939,9 +1023,15 @@ function CheckoutFlow({ cart, posUrl, isDemo, onClose }) {
 
               <div style={{ display:'flex', gap:10 }}>
                 <button className="btn btn-gray" onClick={() => setStep('info')} style={{ flex:1 }}>← Back</button>
-                <button className="btn btn-primary" onClick={startStripeCheckout} style={{ flex:2, fontSize:16, height:50 }}>
-                  💳 Pay {fmtPrice(total)}
-                </button>
+                {paymentMethod === 'card' ? (
+                  <button className="btn btn-primary" onClick={startStripeCheckout} style={{ flex:2, fontSize:16, height:50 }}>
+                    💳 Pay {fmtPrice(total)} via Stripe
+                  </button>
+                ) : (
+                  <button className="btn btn-primary" onClick={placeEbtOrder} style={{ flex:2, fontSize:16, height:50, background:'#16a34a' }}>
+                    🏦 Place Order · Pay EBT at Pickup
+                  </button>
+                )}
               </div>
             </>
           )}
@@ -1161,8 +1251,10 @@ function App() {
     return <SetupScreen onConnect={(url, info) => { setPosUrl(url); setStoreInfo(info); }} onSkip={useDemo}/>;
   }
 
-  const storeName = storeInfo?.name || menu?.store_name || CONFIG.storeName;
-  const storeHours = storeInfo?.hours || null;
+  const storeName       = storeInfo?.name || menu?.store_name || CONFIG.storeName;
+  const storeHours      = storeInfo?.hours || null;
+  const surchargeRate    = storeInfo?.surcharge_rate    ?? 0.04;
+  const surchargeEnabled = storeInfo?.surcharge_enabled ?? true;
 
   return (
     <div style={{ minHeight:'100vh', paddingBottom:100 }}>
@@ -1256,7 +1348,8 @@ function App() {
 
       {/* Checkout */}
       {checkout && (
-        <CheckoutFlow cart={cart} posUrl={posUrl} isDemo={isDemo} onClose={() => setCheckout(false)}/>
+        <CheckoutFlow cart={cart} posUrl={posUrl} isDemo={isDemo} onClose={() => setCheckout(false)}
+          surchargeRate={surchargeRate} surchargeEnabled={surchargeEnabled}/>
       )}
 
       {/* Floating cart (mobile) */}
