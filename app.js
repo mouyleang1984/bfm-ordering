@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════════════════
-// Basic Food Mart — Wawa-Style Online Ordering App
+// Rice Plus Grill — Online Ordering App
 // Self-contained, no build step, deploys to Netlify via drag & drop
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -7,10 +7,10 @@ const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 const CONFIG = {
-  storeName:    'Basic Food Mart',
-  storeTagline: 'Fresh food, made your way.',
-  accentColor:  '#c8102e',
-  logoEmoji:    '🛒',
+  storeName:    'Rice Plus Grill',
+  storeTagline: 'Authentic rice dishes, crafted your way. 🍚',
+  accentColor:  '#16a34a',
+  logoEmoji:    '🍚',
   taxRate:      0.08,
   // Checkout API — built dynamically from posUrl at call time
   checkoutApi:  null,
@@ -63,7 +63,7 @@ function fmtPrice(n) { return `$${Number(n || 0).toFixed(2)}`; }
 
 // ── FALLBACK MENU (when POS is offline) ────────────────────────────────────────
 const DEMO_MENU = {
-  store_name: 'Basic Food Mart',
+  store_name: 'Rice Plus Grill',
   categories: [
     { id: 'hoagies',  name: 'Hoagies & Subs',   icon: '🥖' },
     { id: 'hotfoods', name: 'Hot Foods',         icon: '🍗' },
