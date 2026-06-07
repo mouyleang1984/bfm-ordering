@@ -9,6 +9,7 @@ const CONFIG = {
   storeTagline: 'Fresh food, made your way.',
   accentColor:  '#c8102e',
   logoEmoji:    '🍚',
+  logoUrl:      'https://raw.githubusercontent.com/mouyleang1984/bfm-ordering/main/logo.png',
   taxRate:      0.08,
   checkoutApi:  null,
 };
@@ -193,7 +194,7 @@ function Header({ storeName, isDemo, cartCount, cartTotal, onCartOpen, search, o
       {isDemo && <div className="demo-bar">🔶 DEMO MODE — Connect your POS to go live</div>}
       <div className="header-inner">
         <div className="header-brand">
-          <span className="header-brand-emoji">{CONFIG.logoEmoji}</span>
+          <img src={CONFIG.logoUrl} alt="Rice Plus Grill" style={{ height:42, width:42, objectFit:'contain', borderRadius:'50%', background:'#fff', padding:2 }} />
           <div>
             <div className="header-brand-name">{storeName}</div>
             <div className="header-brand-sub">Online Ordering</div>
