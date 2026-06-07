@@ -241,6 +241,188 @@ function HeroBanner() {
   );
 }
 
+
+// ════════════════════════════════════════════════════════════════════════════
+// PROMO BANNER — Mix & Match promotions with countdown timer
+// ════════════════════════════════════════════════════════════════════════════
+const PROMOS = [
+  {
+    id: 'grand-opening',
+    emoji: '🎉',
+    label: 'GRAND OPENING SPECIAL',
+    headline: 'Free Thai Iced Tea with every plate order!',
+    sub: 'Add any plate to your cart — drink is on us. Limited time only.',
+    bg: 'linear-gradient(135deg,#b91c1c,#dc2626)',
+    badge: 'Free Drink',
+    badgeColor: '#fff',
+    badgeBg: '#991b1b',
+  },
+  {
+    id: 'happy-hour',
+    emoji: '⚡',
+    label: 'HAPPY HOUR',
+    headline: '15% OFF all Grilled Items',
+    sub: 'Every weekday 3 PM – 6 PM. No code needed — discount applied at checkout.',
+    bg: 'linear-gradient(135deg,#c2410c,#ea580c)',
+    badge: '15% OFF',
+    badgeColor: '#fff',
+    badgeBg: '#9a3412',
+    happyHour: { start: 15, end: 18 }, // 3pm–6pm
+  },
+  {
+    id: 'family-pack',
+    emoji: '👨‍👩‍👧‍👦',
+    label: 'FAMILY PACK DEAL',
+    headline: '4 Rice Plates + 4 Drinks — Only $36.99',
+    sub: 'Save $8 vs ordering individually. Perfect for dinner or lunch for the whole family.',
+    bg: 'linear-gradient(135deg,#7c3aed,#a855f7)',
+    badge: 'Save $8',
+    badgeColor: '#fff',
+    badgeBg: '#6d28d9',
+  },
+];
+
+function useCountdown(targetHour) {
+  const [timeLeft, setTimeLeft] = React.useState('');
+  React.useEffect(() => {
+    const calc = () => {
+      const now = new Date();
+      const target = new Date();
+      target.setHours(targetHour, 0, 0, 0);
+      if (now >= target) target.setDate(target.getDate() + 1);
+      const diff = target - now;
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setTimeLeft(`${h}h ${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`);
+    };
+    calc();
+    const t = setInterval(calc, 1000);
+    return () => clearInterval(t);
+  }, [targetHour]);
+  return timeLeft;
+}
+
+function PromoBanner() {
+  const [idx, setIdx]         = React.useState(0);
+  const [dismissed, setDismissed] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('bfm_dismissed_promos') || '[]'); } catch { return []; }
+  });
+  const [visible, setVisible] = React.useState(true);
+
+  const now = new Date();
+  const hour = now.getHours();
+  const isWeekday = now.getDay() >= 1 && now.getDay() <= 5;
+
+  // Filter out dismissed promos
+  const active = PROMOS.filter(p => !dismissed.includes(p.id));
+  if (!active.length || !visible) return null;
+
+  // Auto-rotate every 6 seconds
+  React.useEffect(() => {
+    if (active.length <= 1) return;
+    const t = setInterval(() => setIdx(i => (i + 1) % active.length), 6000);
+    return () => clearInterval(t);
+  }, [active.length]);
+
+  const promo = active[idx % active.length];
+  const isHappyHourActive = promo.happyHour && isWeekday && hour >= promo.happyHour.start && hour < promo.happyHour.end;
+  const countdownTarget  = promo.happyHour ? (isHappyHourActive ? promo.happyHour.end : promo.happyHour.start) : null;
+  const countdownLabel   = isHappyHourActive ? 'Ends in' : 'Starts in';
+  const countdown        = useCountdown(countdownTarget || 15);
+
+  const dismiss = () => {
+    const next = [...dismissed, promo.id];
+    localStorage.setItem('bfm_dismissed_promos', JSON.stringify(next));
+    setDismissed(next);
+  };
+
+  return (
+    <div style={{
+      background: promo.bg,
+      color: '#fff',
+      padding: '14px 20px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 14,
+      position: 'relative',
+      boxShadow: '0 2px 8px rgba(0,0,0,.2)',
+      flexWrap: 'wrap',
+    }}>
+      {/* Badge */}
+      <span style={{
+        background: promo.badgeBg,
+        color: promo.badgeColor,
+        fontWeight: 800,
+        fontSize: 11,
+        padding: '4px 10px',
+        borderRadius: 20,
+        whiteSpace: 'nowrap',
+        letterSpacing: '.5px',
+        flexShrink: 0,
+      }}>{promo.badge}</span>
+
+      {/* Text */}
+      <div style={{ flex: 1, minWidth: 180 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, opacity: .8, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 2 }}>
+          {promo.emoji} {promo.label}
+        </div>
+        <div style={{ fontWeight: 800, fontSize: 15, lineHeight: 1.3 }}>{promo.headline}</div>
+        <div style={{ fontSize: 12, opacity: .85, marginTop: 2 }}>{promo.sub}</div>
+      </div>
+
+      {/* Countdown for happy hour */}
+      {promo.happyHour && isWeekday && (
+        <div style={{
+          background: 'rgba(0,0,0,.25)',
+          borderRadius: 10,
+          padding: '6px 12px',
+          textAlign: 'center',
+          flexShrink: 0,
+        }}>
+          <div style={{ fontSize: 10, opacity: .8, fontWeight: 600 }}>{countdownLabel}</div>
+          <div style={{ fontSize: 16, fontWeight: 900, fontVariantNumeric: 'tabular-nums', letterSpacing: 1 }}>{countdown}</div>
+        </div>
+      )}
+
+      {/* Dot indicators */}
+      {active.length > 1 && (
+        <div style={{ display:'flex', gap:5, alignItems:'center', flexShrink:0 }}>
+          {active.map((p,i) => (
+            <button key={p.id} onClick={() => setIdx(i)} style={{
+              width: i === idx % active.length ? 18 : 7,
+              height: 7,
+              borderRadius: 4,
+              background: i === idx % active.length ? '#fff' : 'rgba(255,255,255,.4)',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 0,
+              transition: 'all .3s',
+            }}/>
+          ))}
+        </div>
+      )}
+
+      {/* Dismiss ✕ */}
+      <button onClick={dismiss} style={{
+        position: 'absolute',
+        top: 8, right: 10,
+        background: 'rgba(0,0,0,.2)',
+        border: 'none',
+        color: '#fff',
+        borderRadius: '50%',
+        width: 22, height: 22,
+        cursor: 'pointer',
+        fontSize: 12,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+      }}>✕</button>
+    </div>
+  );
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // CATEGORY TABS (mobile horizontal scroll bar)
 // ════════════════════════════════════════════════════════════════════════════
@@ -932,6 +1114,7 @@ function App() {
       />
 
       {!search && !loading && menu && <HeroBanner/>}
+      {!search && !loading && menu && <PromoBanner/>}
 
       {banner?.type === 'success'   && <SuccessBanner   orderNum={banner.order} onClose={() => setBanner(null)}/>}
       {banner?.type === 'cancelled' && <CancelledBanner onClose={() => setBanner(null)}/>}
