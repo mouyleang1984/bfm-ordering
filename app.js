@@ -194,7 +194,7 @@ function Header({ storeName, isDemo, cartCount, cartTotal, onCartOpen, search, o
       {isDemo && <div className="demo-bar">🔶 DEMO MODE — Connect your POS to go live</div>}
       <div className="header-inner">
         <div className="header-brand">
-          <img src={CONFIG.logoUrl} alt="Rice Plus Grill" style={{ height:42, width:42, objectFit:'contain', borderRadius:'50%', background:'#fff', padding:2 }} />
+          <img src={CONFIG.logoUrl} alt="Rice Plus Grill" style={{ height:64, width:64, objectFit:'contain', borderRadius:'50%', background:'#fff', padding:3, boxShadow:'0 2px 8px rgba(0,0,0,.25)' }} />
           <div>
             <div className="header-brand-name">{storeName}</div>
             <div className="header-brand-sub">Online Ordering</div>
