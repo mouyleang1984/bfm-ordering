@@ -996,7 +996,14 @@ function App() {
   const posUrlParam = PARAMS.get('pos') || '';
   // ?skip=1 jumps straight to demo menu (for testing layout)
   const skipToDemo = PARAMS.get('skip') === '1';
-  const [posUrl, setPosUrl]       = useLocalStorage('bfm_pos_url_v2', PARAMS.get('demo') === '1' ? '' : (posUrlParam || null));
+  // Always start fresh — ignore any stale POS tunnel URL from localStorage
+  const [posUrl, setPosUrl]       = useLocalStorage('bfm_pos_url_v2', null);
+  // On first render, clear any stale non-cloud URL so we reconnect via cloud
+  React.useEffect(() => {
+    if (posUrl !== null && posUrl !== '__cloud__' && posUrl !== '') {
+      setPosUrl(null);
+    }
+  }, []);
   const [storeInfo, setStoreInfo] = useState(null);
   const [isDemo, setIsDemo]       = useState(PARAMS.get('demo') === '1');
   const [menu, setMenu]           = useState(PARAMS.get('demo') === '1' ? DEMO_MENU : null);
