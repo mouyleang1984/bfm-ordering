@@ -814,15 +814,16 @@ function CartDrawer({ cart, open, onClose, onUpdateQty, onRemove, onClear, onChe
 // CHECKOUT FLOW
 // ════════════════════════════════════════════════════════════════════════════
 function CheckoutFlow({ cart, posUrl, isDemo, onClose }) {
-  const [step, setStep] = useState('info');
+  const [step, setStep]       = useState('info');   // info | review | paymethod | paying | done
   const [orderNum, setOrderNum] = useState('');
-  const [type, setType] = useState('pickup');
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [addr, setAddr] = useState('');
-  const [note, setNote] = useState('');
-  const [err, setErr] = useState('');
+  const [type, setType]       = useState('pickup');
+  const [name, setName]       = useState('');
+  const [phone, setPhone]     = useState('');
+  const [email, setEmail]     = useState('');
+  const [addr, setAddr]       = useState('');
+  const [note, setNote]       = useState('');
+  const [payMethod, setPayMethod] = useState('');   // 'pickup' | 'stripe'
+  const [err, setErr]         = useState('');
 
   const subtotal = cart.reduce((s,i) => s + i.unit_price * i.qty, 0);
   const tax      = subtotal * CONFIG.taxRate;
@@ -835,138 +836,253 @@ function CheckoutFlow({ cart, posUrl, isDemo, onClose }) {
     setErr(''); return true;
   };
 
-  const submitOrder = async () => {
+  // Step 1: info → review
+  const goReview = () => {
     if (!validate()) return;
-    if (step === 'info') { setStep('review'); return; }
+    setStep('review');
+  };
+
+  // Step 2: review → payment method selection
+  const goPayMethod = () => {
+    setStep('paymethod');
+  };
+
+  // Step 3a: Pay at pickup — just submit order, no card
+  const submitPickupOrder = async () => {
     setStep('paying');
-
-    // isDemo check removed — cloud backend always available
-
     try {
-      // Always use permanent cloud backend — no local tunnel needed
-      const CLOUD_URL = 'https://jeti-f4fa11f5.base44.app/functions/onlineOrderPage?action=submit';
-      const res = await fetch(CLOUD_URL, {
-        method:'POST', headers:{ 'Content-Type':'application/json' },
+      const res = await fetch('https://jeti-f4fa11f5.base44.app/functions/onlineOrderPage?action=submit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: name.trim(), phone: phone.trim(),
-          email: email.trim(), type: type,
-          address: addr.trim(), note: note.trim(),
+          name: name.trim(), phone: phone.trim(), email: email.trim(),
+          type, address: addr.trim(), note: note.trim(),
+          payment_method: 'pay_at_pickup',
           items: cart.map(i => ({ name:i.name, qty:i.qty, price:i.unit_price||i.base_price||0 })),
         }),
         signal: AbortSignal.timeout(20000),
       });
       const data = await res.json();
-      if (data.ok) {
-        setOrderNum(data.order_number || '');
-        setStep('done');
-      } else { setErr(data.error || 'Order failed. Please try again.'); setStep('review'); }
-    } catch(e) { setErr(e.message || 'Network error — check your connection.'); setStep('review'); }
+      if (data.ok) { setOrderNum(data.order_number || ''); setStep('done'); }
+      else { setErr(data.error || 'Order failed. Please try again.'); setStep('paymethod'); }
+    } catch(e) { setErr(e.message || 'Network error.'); setStep('paymethod'); }
   };
 
+  // Step 3b: Pay online via Stripe — create checkout session then redirect
+  const submitStripeOrder = async () => {
+    setStep('paying');
+    try {
+      // First save the order
+      const res = await fetch('https://jeti-f4fa11f5.base44.app/functions/onlineOrderPage?action=submit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(), phone: phone.trim(), email: email.trim(),
+          type, address: addr.trim(), note: note.trim(),
+          payment_method: 'stripe_online',
+          items: cart.map(i => ({ name:i.name, qty:i.qty, price:i.unit_price||i.base_price||0 })),
+        }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json();
+      if (!data.ok) { setErr(data.error || 'Order failed.'); setStep('paymethod'); return; }
+
+      // If backend returned a Stripe URL, redirect
+      if (data.stripe_url) {
+        window.location.href = data.stripe_url;
+        return;
+      }
+
+      // If no Stripe URL configured on backend, show order as placed + note to pay on arrival
+      setOrderNum(data.order_number || '');
+      setStep('done_stripe_fallback');
+    } catch(e) { setErr(e.message || 'Network error.'); setStep('paymethod'); }
+  };
+
+  const fmtPrice = n => "$" + Number(n||0).toFixed(2);
+
   return (
-    <div className="overlay" onClick={e => e.target === e.currentTarget && step !== 'paying' && onClose()}>
+    <div className="overlay" onClick={e => e.target === e.currentTarget && step !== "paying" && onClose()}>
       <div className="modal">
+
+        {/* Header */}
         <div className="modal-hdr">
-          <h2>{ step==='info' ? '📋 Your Details' : step==='review' ? '✅ Review & Pay' : '⏳ Processing…' }</h2>
-          {step !== 'paying' && <button className="close-btn" onClick={onClose}><IconX/></button>}
+          <h2>
+            {step === "info"      ? "📋 Your Details"
+           : step === "review"   ? "✅ Review Order"
+           : step === "paymethod"? "💳 How to Pay"
+           : step === "paying"   ? "⏳ Processing…"
+           : "🎉 Order Placed!"}
+          </h2>
+          {step !== "paying" && <button className="close-btn" onClick={onClose}><IconX/></button>}
         </div>
+
         <div className="modal-body">
 
-          {step === 'done' && (
-            <div style={{ textAlign:'center', padding:'48px 24px' }}>
-              <div style={{ fontSize:64, marginBottom:16 }}>✅</div>
-              <h2 style={{ color:'#2d7a3a', marginBottom:8 }}>Order Placed!</h2>
-              <p style={{ fontSize:15, color:'#555', marginBottom:6 }}>Order # {orderNum}</p>
-              <p style={{ fontSize:13, color:'#777', marginBottom:24 }}>Ready for pickup in ~15–20 min. Call (856) 856-2202 with changes.</p>
-              <button className="btn-primary" onClick={onClose} style={{ width:'100%', padding:'14px', fontSize:16 }}>Done</button>
-            </div>
-          )}
-          {step === 'paying' && (
-            <div style={{ textAlign:'center', padding:'48px 0' }}>
-              <div className="spinner" style={{ margin:'0 auto 20px', width:52, height:52 }}/>
-              <div style={{ fontWeight:700, fontSize:16, marginBottom:6 }}>Creating secure checkout…</div>
-              <div style={{ color:'#888', fontSize:13 }}>Redirecting to Stripe…</div>
+          {/* ── STEP: DONE ── */}
+          {(step === "done" || step === "done_stripe_fallback") && (
+            <div style={{ textAlign:"center", padding:"40px 16px" }}>
+              <div style={{ fontSize:64, marginBottom:12 }}>✅</div>
+              <h2 style={{ color:"#2d7a3a", marginBottom:8 }}>Order Confirmed!</h2>
+              <div style={{ fontSize:22, fontWeight:900, color:"#c8102e", marginBottom:6 }}>Order # {orderNum}</div>
+              <p style={{ fontSize:14, color:"#555", marginBottom:4 }}>
+                Ready for {type === "pickup" ? "pickup" : "delivery"} in ~15–20 min.
+              </p>
+              {step === "done" && (
+                <div style={{ background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:10, padding:"12px 16px", margin:"16px 0", fontSize:13, color:"#166534" }}>
+                  💵 <strong>Pay at {type === "pickup" ? "pickup" : "delivery"}</strong> — Cash, card, or EBT accepted
+                </div>
+              )}
+              {step === "done_stripe_fallback" && (
+                <div style={{ background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10, padding:"12px 16px", margin:"16px 0", fontSize:13, color:"#92400e" }}>
+                  💳 Online payment link was not available — <strong>please pay at pickup</strong>
+                </div>
+              )}
+              <p style={{ fontSize:12, color:"#888", marginBottom:20 }}>
+                Call (856) 856-2202 with any changes.
+              </p>
+              <button className="btn btn-red" onClick={onClose} style={{ width:"100%", height:48, fontSize:16 }}>Done</button>
             </div>
           )}
 
-          {step === 'info' && (
+          {/* ── STEP: PAYING ── */}
+          {step === "paying" && (
+            <div style={{ textAlign:"center", padding:"48px 0" }}>
+              <div className="spinner" style={{ margin:"0 auto 20px", width:52, height:52 }}/>
+              <div style={{ fontWeight:700, fontSize:16, marginBottom:6 }}>
+                {payMethod === "stripe" ? "Creating secure checkout…" : "Placing your order…"}
+              </div>
+              {payMethod === "stripe" && (
+                <div style={{ color:"#888", fontSize:13 }}>Redirecting to Stripe…</div>
+              )}
+            </div>
+          )}
+
+          {/* ── STEP: INFO ── */}
+          {step === "info" && (
             <>
-              <div style={{ display:'flex', gap:10, marginBottom:18 }}>
-                {['pickup','delivery'].map(t => (
+              <div style={{ display:"flex", gap:10, marginBottom:18 }}>
+                {["pickup","delivery"].map(t => (
                   <button key={t} onClick={() => setType(t)} className="btn"
-                    style={{ flex:1, background: type===t ? CONFIG.accentColor : '#f0f0f0', color: type===t ? '#fff' : '#333', fontSize:14 }}>
-                    {t === 'pickup' ? '🏪 Pickup' : '🛵 Delivery'}
+                    style={{ flex:1, background: type===t ? CONFIG.accentColor : "#f0f0f0",
+                             color: type===t ? "#fff" : "#333", fontSize:14 }}>
+                    {t === "pickup" ? "🏪 Pickup" : "🛵 Delivery"}
                   </button>
                 ))}
               </div>
-
-              <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-                <div><label className="field-label">Full Name *</label>
-                  <input className="input" value={name} onChange={e=>setName(e.target.value)} placeholder="John Smith"/></div>
-                <div><label className="field-label">Phone Number *</label>
-                  <input className="input" type="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="(555) 123-4567"/></div>
-                <div><label className="field-label">Email (for receipt)</label>
-                  <input className="input" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></div>
-                {type === 'delivery' && (
-                  <div><label className="field-label">Delivery Address *</label>
-                    <input className="input" value={addr} onChange={e=>setAddr(e.target.value)} placeholder="123 Main St, City, State"/></div>
+              <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                <div>
+                  <label className="field-label">Full Name *</label>
+                  <input className="input" value={name} onChange={e=>setName(e.target.value)} placeholder="John Smith"/>
+                </div>
+                <div>
+                  <label className="field-label">Phone Number *</label>
+                  <input className="input" type="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="(555) 123-4567"/>
+                </div>
+                <div>
+                  <label className="field-label">Email (for receipt)</label>
+                  <input className="input" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/>
+                </div>
+                {type === "delivery" && (
+                  <div>
+                    <label className="field-label">Delivery Address *</label>
+                    <input className="input" value={addr} onChange={e=>setAddr(e.target.value)} placeholder="123 Main St, City, State"/>
+                  </div>
                 )}
-                <div><label className="field-label">Order Notes</label>
+                <div>
+                  <label className="field-label">Order Notes</label>
                   <textarea className="input" value={note} onChange={e=>setNote(e.target.value)}
-                    placeholder="Any special requests?" rows={2} style={{ resize:'vertical' }}/></div>
+                    placeholder="Any special requests?" rows={2} style={{ resize:"vertical" }}/>
+                </div>
               </div>
-
-              {err && <div style={{ color:'#c62828', fontSize:13, marginTop:10, padding:'8px 12px', background:'#fdecea', borderRadius:6 }}>{err}</div>}
-
-              <button className="btn btn-red" onClick={submitOrder} style={{ width:'100%', height:50, fontSize:16, marginTop:18 }}>
+              {err && <div style={{ color:"#c62828", fontSize:13, marginTop:10, padding:"8px 12px", background:"#fdecea", borderRadius:6 }}>{err}</div>}
+              <button className="btn btn-red" onClick={goReview} style={{ width:"100%", height:50, fontSize:16, marginTop:18 }}>
                 Review Order →
               </button>
             </>
           )}
 
-          {step === 'review' && (
+          {/* ── STEP: REVIEW ── */}
+          {step === "review" && (
             <>
-              <div style={{ background:'#f9f9f9', borderRadius:10, padding:'14px 16px', marginBottom:16 }}>
-                <div style={{ fontWeight:700, fontSize:14, marginBottom:10, color:'#555' }}>Order Summary</div>
+              <div style={{ background:"#f9f9f9", borderRadius:10, padding:"14px 16px", marginBottom:14 }}>
+                <div style={{ fontWeight:700, fontSize:13, marginBottom:10, color:"#555", textTransform:"uppercase", letterSpacing:.5 }}>Order Summary</div>
                 {cart.map((item, i) => (
-                  <div key={i} style={{ display:'flex', justifyContent:'space-between', fontSize:14, marginBottom:6 }}>
-                    <span>{item.qty}× {item.name}{item.mods?.length ? ` (${item.mods.join(', ')})` : ''}</span>
+                  <div key={i} style={{ display:"flex", justifyContent:"space-between", fontSize:14, marginBottom:6 }}>
+                    <span>{item.qty}× {item.name}</span>
                     <span style={{ fontWeight:600 }}>{fmtPrice(item.unit_price * item.qty)}</span>
                   </div>
                 ))}
-                <div style={{ borderTop:'1px solid #e0e0e0', paddingTop:8, marginTop:8 }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:'#666', marginBottom:4 }}>
+                <div style={{ borderTop:"1px solid #e0e0e0", paddingTop:8, marginTop:8 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, color:"#666", marginBottom:4 }}>
                     <span>Subtotal</span><span>{fmtPrice(subtotal)}</span>
                   </div>
-                  <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:'#666', marginBottom:8 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, color:"#666", marginBottom:6 }}>
                     <span>Tax ({(CONFIG.taxRate*100).toFixed(0)}%)</span><span>{fmtPrice(tax)}</span>
                   </div>
-                  <div style={{ display:'flex', justifyContent:'space-between', fontWeight:900, fontSize:18 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", fontWeight:900, fontSize:20 }}>
                     <span>Total</span><span style={{ color:CONFIG.accentColor }}>{fmtPrice(total)}</span>
                   </div>
                 </div>
               </div>
-
-              <div style={{ background:'#f9f9f9', borderRadius:10, padding:'12px 16px', marginBottom:16, fontSize:13, lineHeight:1.7 }}>
-                <strong>{type === 'pickup' ? '🏪 Pickup' : '🛵 Delivery'}</strong><br/>
-                {name} · {phone}{email ? ` · ${email}` : ''}
-                {type === 'delivery' && addr ? <><br/>{addr}</> : null}
-                {note ? <><br/>📝 {note}</> : null}
+              <div style={{ background:"#f9f9f9", borderRadius:10, padding:"10px 14px", marginBottom:14, fontSize:13, lineHeight:1.7 }}>
+                <strong>{type === "pickup" ? "🏪 Pickup" : "🛵 Delivery"}</strong><br/>
+                {name} · {phone}{email ? " · " + email : ""}
+                {type === "delivery" && addr ? (<><br/>{addr}</>) : null}
+                {note ? (<><br/>📝 {note}</>) : null}
               </div>
-
-              {err && <div style={{ color:'#c62828', fontSize:13, marginBottom:12, padding:'8px 12px', background:'#fdecea', borderRadius:6 }}>{err}</div>}
-
-              <div style={{ display:'flex', gap:10 }}>
-                <button className="btn btn-gray" onClick={() => { setStep('info'); setErr(''); }} style={{ padding:'12px 20px' }}>← Back</button>
-                <button className="btn btn-red" onClick={submitOrder} style={{ flex:1, height:50, fontSize:16 }}>
-                  💳 Pay {fmtPrice(total)} →
+              <div style={{ display:"flex", gap:8 }}>
+                <button className="btn" onClick={() => setStep("info")}
+                  style={{ flex:1, height:46, fontSize:14, background:"#f0f0f0", color:"#333" }}>
+                  ← Edit
+                </button>
+                <button className="btn btn-red" onClick={goPayMethod}
+                  style={{ flex:2, height:46, fontSize:16 }}>
+                  Choose Payment →
                 </button>
               </div>
-              <p style={{ fontSize:11, color:'#bbb', textAlign:'center', marginTop:10, display:'flex', alignItems:'center', justifyContent:'center', gap:4 }}>
-                <IconLock/> Secure payment via Stripe
-              </p>
             </>
           )}
+
+          {/* ── STEP: PAYMENT METHOD ── */}
+          {step === "paymethod" && (
+            <>
+              <div style={{ textAlign:"center", marginBottom:20 }}>
+                <div style={{ fontSize:32, fontWeight:900, color:CONFIG.accentColor }}>{fmtPrice(total)}</div>
+                <div style={{ fontSize:13, color:"#888", marginTop:2 }}>How would you like to pay?</div>
+              </div>
+
+              {err && <div style={{ color:"#c62828", fontSize:13, marginBottom:14, padding:"8px 12px", background:"#fdecea", borderRadius:6 }}>{err}</div>}
+
+              {/* Pay at Pickup */}
+              <button onClick={() => { setPayMethod("pickup"); submitPickupOrder(); }}
+                style={{ width:"100%", padding:"20px 16px", background:"#f0fdf4", border:"2px solid #22c55e",
+                         borderRadius:14, marginBottom:12, cursor:"pointer", textAlign:"left",
+                         display:"flex", alignItems:"center", gap:14 }}>
+                <span style={{ fontSize:36 }}>💵</span>
+                <div>
+                  <div style={{ fontWeight:800, fontSize:16, color:"#166534" }}>Pay at {type === "pickup" ? "Pickup" : "Delivery"}</div>
+                  <div style={{ fontSize:13, color:"#555", marginTop:2 }}>Cash · Credit/Debit · EBT · No card needed now</div>
+                </div>
+              </button>
+
+              {/* Pay Online via Stripe */}
+              <button onClick={() => { setPayMethod("stripe"); submitStripeOrder(); }}
+                style={{ width:"100%", padding:"20px 16px", background:"#eff6ff", border:"2px solid #3b82f6",
+                         borderRadius:14, marginBottom:16, cursor:"pointer", textAlign:"left",
+                         display:"flex", alignItems:"center", gap:14 }}>
+                <span style={{ fontSize:36 }}>💳</span>
+                <div>
+                  <div style={{ fontWeight:800, fontSize:16, color:"#1d4ed8" }}>Pay Online Now</div>
+                  <div style={{ fontSize:13, color:"#555", marginTop:2 }}>Secure card payment via Stripe · Order confirmed instantly</div>
+                </div>
+              </button>
+
+              <button className="btn" onClick={() => setStep("review")}
+                style={{ width:"100%", height:40, fontSize:13, background:"#f0f0f0", color:"#555" }}>
+                ← Back to Review
+              </button>
+            </>
+          )}
+
         </div>
       </div>
     </div>
