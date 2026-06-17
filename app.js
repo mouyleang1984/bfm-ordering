@@ -112,9 +112,10 @@ function SetupScreen({ onConnect, onSkip }) {
       .then(r => r.json())
       .then(data => {
         if (data.ok) {
+          window._cloudMenu = data;
           onConnect('__cloud__', { ok:true, name:'Rice Plus Grill', ...data });
         } else {
-          onSkip(); // fallback to demo if cloud fails
+          onSkip();
         }
       })
       .catch(() => onSkip());
@@ -1058,9 +1059,16 @@ function App() {
   useEffect(() => { if (posUrl !== null && posUrl !== undefined && !isDemo) loadMenu(); }, [posUrl, loadMenu, isDemo]);
 
   const useDemo = () => {
-    setIsDemo(true); setPosUrl('');
-    setMenu(DEMO_MENU);
-    setActiveCat(DEMO_MENU.categories[0].id);
+    const cloud = window._cloudMenu;
+    if (cloud && cloud.categories && cloud.categories.length > 0) {
+      setIsDemo(false); setPosUrl('__cloud__');
+      setMenu({ store_name: cloud.store_name || 'Rice Plus Grill', categories: cloud.categories, items: cloud.items || [] });
+      setActiveCat(cloud.categories[0].id);
+    } else {
+      setIsDemo(true); setPosUrl('');
+      setMenu(DEMO_MENU);
+      setActiveCat(DEMO_MENU.categories[0].id);
+    }
   };
 
   const cartCount = cart.reduce((s,i) => s + i.qty, 0);
@@ -1085,16 +1093,16 @@ function App() {
     setTimeout(() => { setIsDemo(true); setPosUrl(''); setMenu(DEMO_MENU); setActiveCat(DEMO_MENU.categories[0].id); }, 0);
   }
 
-  if (posUrl === null && !isDemo && !skipToDemo) {
-    return <SetupScreen onConnect={(url, info) => {
+  const handleConnect = (url, info) => {
     setPosUrl(url);
     setStoreInfo(info);
-    if (url === '__cloud__' && info.categories) {
-      // Directly set the menu from cloud data — no tunnel needed
+    if (url === '__cloud__' && info && info.categories) {
       setMenu({ store_name: info.store_name || 'Rice Plus Grill', categories: info.categories, items: info.items || [] });
-      setActiveCat(info.categories[0]?.id);
+      if (info.categories[0]) setActiveCat(info.categories[0].id);
     }
-  }} onSkip={useDemo}/>;
+  };
+  if (posUrl === null && !isDemo && !skipToDemo) {
+    return <SetupScreen onConnect={handleConnect} onSkip={useDemo}/>;
   }
 
   const storeName = storeInfo?.name || menu?.store_name || CONFIG.storeName;
