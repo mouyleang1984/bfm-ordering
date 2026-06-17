@@ -1154,7 +1154,8 @@ function App() {
   const [checkout, setCheckout]   = useState(false);
 
   const [banner, setBanner] = useState(() => {
-    if (PARAMS.get('order_success'))   return { type:'success',   order: PARAMS.get('order') || '' };
+    if (PARAMS.get('order_success') || PARAMS.get('paid'))
+                                       return { type:'success',   order: PARAMS.get('order') || '' };
     if (PARAMS.get('order_cancelled')) return { type:'cancelled' };
     return null;
   });
