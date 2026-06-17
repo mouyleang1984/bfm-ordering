@@ -1023,7 +1023,7 @@ function App() {
   }, []);
 
   const loadMenu = useCallback(async () => {
-    if (posUrl === null || posUrl === undefined) return;
+    if (posUrl === null || posUrl === undefined || posUrl === '') return;
     // Cloud mode: menu already loaded via SetupScreen — no need to re-fetch
     if (posUrl === '__cloud__') return;
     setLoading(true); setMenuErr('');
