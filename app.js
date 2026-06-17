@@ -106,13 +106,41 @@ function SetupScreen({ onConnect, onSkip }) {
   const [autoChecking, setAutoChecking] = useState(true);
 
   useEffect(() => {
-    // Cloud mode: load real menu from cloud backend
+    // Check localStorage cache first — connect instantly if we have a recent menu
+    try {
+      const cached = JSON.parse(localStorage.getItem('bfm_cloud_menu_cache') || 'null');
+      if (cached && cached.menu && cached.menu.categories && cached.menu.categories.length > 0) {
+        // Use cache immediately (instant load — no spinner wait)
+        window._cloudMenu = cached.menu;
+        setAutoChecking(false);
+        onConnect('__cloud__', { ok:true, name: cached.menu.store_name || 'Rice Plus Grill', ...cached.menu });
+        // Silently refresh in background
+        fetch('https://jeti-f4fa11f5.base44.app/functions/onlineOrderPage?action=menu', { signal: AbortSignal.timeout(10000) })
+          .then(r => r.json())
+          .then(data => {
+            if (data.ok && data.categories && data.categories.length > 0) {
+              const m = { store_name: data.store_name || 'Rice Plus Grill', categories: data.categories, items: data.items || [] };
+              localStorage.setItem('bfm_cloud_menu_cache', JSON.stringify({ ts: Date.now(), menu: m }));
+              localStorage.setItem('bfm_pos_url_v2', JSON.stringify('__cloud__'));
+              window._cloudMenu = m;
+            }
+          }).catch(() => {});
+        return;
+      }
+    } catch(_) {}
+
+    // No cache — fetch fresh
     const MENU_URL = 'https://jeti-f4fa11f5.base44.app/functions/onlineOrderPage?action=menu';
-    fetch(MENU_URL, { signal: AbortSignal.timeout(8000) })
+    fetch(MENU_URL, { signal: AbortSignal.timeout(10000) })
       .then(r => r.json())
       .then(data => {
-        if (data.ok) {
+        if (data.ok && data.categories && data.categories.length > 0) {
           window._cloudMenu = data;
+          try {
+            const m = { store_name: data.store_name || 'Rice Plus Grill', categories: data.categories, items: data.items || [] };
+            localStorage.setItem('bfm_cloud_menu_cache', JSON.stringify({ ts: Date.now(), menu: m }));
+            localStorage.setItem('bfm_pos_url_v2', JSON.stringify('__cloud__'));
+          } catch(_) {}
           onConnect('__cloud__', { ok:true, name:'Rice Plus Grill', ...data });
         } else {
           onSkip();
@@ -996,14 +1024,7 @@ function App() {
   const posUrlParam = PARAMS.get('pos') || '';
   // ?skip=1 jumps straight to demo menu (for testing layout)
   const skipToDemo = PARAMS.get('skip') === '1';
-  // Always start fresh — ignore any stale POS tunnel URL from localStorage
-  const [posUrl, setPosUrl]       = useLocalStorage('bfm_pos_url_v2', null);
-  // On first render, clear any stale non-cloud URL so we reconnect via cloud
-  React.useEffect(() => {
-    if (posUrl !== null && posUrl !== '__cloud__' && posUrl !== '') {
-      setPosUrl(null);
-    }
-  }, []);
+  const [posUrl, setPosUrl]       = useLocalStorage('bfm_pos_url_v2', PARAMS.get('demo') === '1' ? '' : (posUrlParam || '__cloud__'));
   const [storeInfo, setStoreInfo] = useState(null);
   const [isDemo, setIsDemo]       = useState(PARAMS.get('demo') === '1');
   const [menu, setMenu]           = useState(PARAMS.get('demo') === '1' ? DEMO_MENU : null);
@@ -1030,9 +1051,40 @@ function App() {
   }, []);
 
   const loadMenu = useCallback(async () => {
-    if (posUrl === null || posUrl === undefined || posUrl === '') return;
-    // Cloud mode: menu already loaded via SetupScreen — no need to re-fetch
-    if (posUrl === '__cloud__') return;
+    if (posUrl === null || posUrl === undefined || posUrl === '') { setPosUrl('__cloud__'); return; }
+
+    // ── Cloud mode: always re-fetch from cloud backend ─────────────────────
+    if (posUrl === '__cloud__') {
+      setLoading(true); setMenuErr('');
+      try {
+        const MENU_URL = 'https://jeti-f4fa11f5.base44.app/functions/onlineOrderPage?action=menu';
+        const r = await fetch(MENU_URL, { signal: AbortSignal.timeout(10000) });
+        const data = await r.json();
+        if (data.ok && data.categories && data.categories.length > 0) {
+          const m = { store_name: data.store_name || 'Rice Plus Grill', categories: data.categories, items: data.items || [] };
+          setMenu(m);
+          setActiveCat(data.categories[0].id);
+          // Cache it so next render is instant
+          try { localStorage.setItem('bfm_cloud_menu_cache', JSON.stringify({ ts: Date.now(), menu: m })); } catch(_) {}
+        } else {
+          // Try cache fallback
+          try {
+            const cached = JSON.parse(localStorage.getItem('bfm_cloud_menu_cache') || 'null');
+            if (cached && cached.menu) { setMenu(cached.menu); setActiveCat(cached.menu.categories[0]?.id); }
+            else setMenuErr('Menu unavailable. Please try again.');
+          } catch(_) { setMenuErr('Menu unavailable. Please try again.'); }
+        }
+      } catch(e) {
+        // Try cache fallback on error
+        try {
+          const cached = JSON.parse(localStorage.getItem('bfm_cloud_menu_cache') || 'null');
+          if (cached && cached.menu) { setMenu(cached.menu); setActiveCat(cached.menu.categories[0]?.id); }
+          else setMenuErr('Couldn't reach store. Check connection and retry.');
+        } catch(_) { setMenuErr('Couldn't reach store. Check connection and retry.'); }
+      }
+      setLoading(false);
+      return;
+    }
     setLoading(true); setMenuErr('');
     const tryFetch = async (base) => {
       const [mr, sr] = await Promise.allSettled([
@@ -1063,7 +1115,7 @@ function App() {
     }
   }, []);
 
-  useEffect(() => { if (posUrl !== null && posUrl !== undefined && !isDemo) loadMenu(); }, [posUrl, loadMenu, isDemo]);
+  useEffect(() => { if (!isDemo) loadMenu(); }, [posUrl, loadMenu, isDemo]);
 
   const useDemo = () => {
     const cloud = window._cloudMenu;
@@ -1109,7 +1161,9 @@ function App() {
     }
   };
   if (posUrl === null && !isDemo && !skipToDemo) {
-    return <SetupScreen onConnect={handleConnect} onSkip={useDemo}/>;
+    // Auto-redirect to cloud — no setup needed
+    setTimeout(() => setPosUrl('__cloud__'), 0);
+    return null;
   }
 
   const storeName = storeInfo?.name || menu?.store_name || CONFIG.storeName;
@@ -1192,12 +1246,7 @@ function App() {
       <footer style={{ textAlign:'center', padding:'40px 20px 120px', color:'#ccc', fontSize:12, borderTop:'1px solid #eee', marginTop:20 }}>
         <p>© {new Date().getFullYear()} {CONFIG.storeName} — Online Ordering</p>
         <p style={{ marginTop:4 }}>Powered by Stripe · Secure payments · No account needed</p>
-        {!isDemo && posUrl && (
-          <button onClick={() => { setPosUrl(''); setMenu(null); setIsDemo(false); }}
-            style={{ marginTop:8, background:'none', border:'none', color:'#ccc', fontSize:11, cursor:'pointer' }}>
-            ⚙️ Change POS URL
-          </button>
-        )}
+
       </footer>
     </div>
   );
