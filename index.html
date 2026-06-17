@@ -459,6 +459,16 @@
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/@babel/standalone@7.26.5/babel.min.js"></script>
-  <script type="text/babel" data-presets="react" src="app.js?v=1781724780025"></script>
+    <script>
+    // Clear any stale local POS tunnel URL so the app always reconnects to cloud
+    try {
+      var stored = localStorage.getItem('bfm_pos_url_v2');
+      if (stored && stored !== '"__cloud__"' && stored !== 'null') {
+        console.log('[BFM] Clearing stale POS URL:', stored);
+        localStorage.removeItem('bfm_pos_url_v2');
+      }
+    } catch(e) {}
+  </script>
+  <script type="text/babel" data-presets="react" src="app.js?v=1781728622433"></script>
 </body>
 </html>
