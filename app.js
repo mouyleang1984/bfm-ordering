@@ -106,8 +106,18 @@ function SetupScreen({ onConnect, onSkip }) {
   const [autoChecking, setAutoChecking] = useState(true);
 
   useEffect(() => {
-    // Cloud mode: no local tunnel needed — skip straight to the menu
-    setTimeout(() => onSkip(), 100);
+    // Cloud mode: load real menu from cloud backend
+    const MENU_URL = 'https://jeti-f4fa11f5.base44.app/functions/onlineOrderPage?action=menu';
+    fetch(MENU_URL, { signal: AbortSignal.timeout(8000) })
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) {
+          onConnect('__cloud__', { ok:true, name:'Rice Plus Grill', ...data });
+        } else {
+          onSkip(); // fallback to demo if cloud fails
+        }
+      })
+      .catch(() => onSkip());
   }, []);
 
   const tryConnect = async () => {
@@ -1013,6 +1023,8 @@ function App() {
 
   const loadMenu = useCallback(async () => {
     if (posUrl === null || posUrl === undefined) return;
+    // Cloud mode: menu already loaded via SetupScreen — no need to re-fetch
+    if (posUrl === '__cloud__') return;
     setLoading(true); setMenuErr('');
     const tryFetch = async (base) => {
       const [mr, sr] = await Promise.allSettled([
@@ -1028,7 +1040,7 @@ function App() {
       setMenu(mr.value);
       if (mr.value.categories?.length) setActiveCat(mr.value.categories[0].id);
     } else {
-      setMenuErr(mr.status === 'rejected' ? (mr.reason?.message || 'POS is not running.') : mr.value?.error || 'Failed to load menu');
+      setMenuErr(mr.status === 'rejected' ? (mr.reason?.message || 'Failed to load menu.') : mr.value?.error || 'Failed to load menu');
     }
     if (sr.status === 'fulfilled' && sr.value.ok) setStoreInfo(sr.value);
     setLoading(false);
@@ -1074,7 +1086,15 @@ function App() {
   }
 
   if (posUrl === null && !isDemo && !skipToDemo) {
-    return <SetupScreen onConnect={(url, info) => { setPosUrl(url); setStoreInfo(info); }} onSkip={useDemo}/>;
+    return <SetupScreen onConnect={(url, info) => {
+    setPosUrl(url);
+    setStoreInfo(info);
+    if (url === '__cloud__' && info.categories) {
+      // Directly set the menu from cloud data — no tunnel needed
+      setMenu({ store_name: info.store_name || 'Rice Plus Grill', categories: info.categories, items: info.items || [] });
+      setActiveCat(info.categories[0]?.id);
+    }
+  }} onSkip={useDemo}/>;
   }
 
   const storeName = storeInfo?.name || menu?.store_name || CONFIG.storeName;
