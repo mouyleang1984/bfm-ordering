@@ -106,28 +106,8 @@ function SetupScreen({ onConnect, onSkip }) {
   const [autoChecking, setAutoChecking] = useState(true);
 
   useEffect(() => {
-    const origin = window.location.origin;
-    const isTrycloudflare = origin.includes('trycloudflare.com');
-    const isLocalhost = origin.includes('localhost') || origin.includes('127.0.0.1');
-    if (isTrycloudflare || isLocalhost) {
-      posFetch('/store-info', { signal: AbortSignal.timeout(6000) })
-        .then(info => { if (info.ok) onConnect('', info); else setAutoChecking(false); })
-        .catch(() => setAutoChecking(false));
-      return;
-    }
-    const REGISTRY_URL = 'https://raw.githubusercontent.com/mouyleang1984/bfm-ordering/main/tunnel-url.txt';
-    fetch(REGISTRY_URL + '?t=' + Date.now(), { cache:'no-store', signal: AbortSignal.timeout(6000) })
-      .then(async r => {
-        if (!r.ok) { setAutoChecking(false); return; }
-        const tunnelUrl = (await r.text()).trim();
-        if (!tunnelUrl || !tunnelUrl.startsWith('https://')) { setAutoChecking(false); return; }
-        setUrl(tunnelUrl);
-        try {
-          const info = await posFetch(`${tunnelUrl}/store-info`, { signal: AbortSignal.timeout(8000) });
-          if (info?.ok) onConnect(tunnelUrl, info); else setAutoChecking(false);
-        } catch(_) { setAutoChecking(false); }
-      })
-      .catch(() => setAutoChecking(false));
+    // Cloud mode: no local tunnel needed — skip straight to the menu
+    setTimeout(() => onSkip(), 100);
   }, []);
 
   const tryConnect = async () => {
@@ -796,6 +776,7 @@ function CartDrawer({ cart, open, onClose, onUpdateQty, onRemove, onClear, onChe
 // ════════════════════════════════════════════════════════════════════════════
 function CheckoutFlow({ cart, posUrl, isDemo, onClose }) {
   const [step, setStep] = useState('info');
+  const [orderNum, setOrderNum] = useState('');
   const [type, setType] = useState('pickup');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -820,28 +801,26 @@ function CheckoutFlow({ cart, posUrl, isDemo, onClose }) {
     if (step === 'info') { setStep('review'); return; }
     setStep('paying');
 
-    if (isDemo) {
-      setTimeout(() => { setErr('DEMO MODE: No payment processed. Connect your POS to go live.'); setStep('review'); }, 1500);
-      return;
-    }
+    // isDemo check removed — cloud backend always available
 
     try {
-      const checkoutUrl = (posUrl && posUrl.startsWith('http'))
-        ? `${posUrl}/api/create-checkout`
-        : `${window.location.origin}/api/create-checkout`;
-      const res = await fetch(checkoutUrl, {
-        method:'POST', headers:{ 'Content-Type':'application/json', 'bypass-tunnel-reminder':'true' },
+      // Always use permanent cloud backend — no local tunnel needed
+      const CLOUD_URL = 'https://jeti-f4fa11f5.base44.app/functions/onlineOrderPage?action=submit';
+      const res = await fetch(CLOUD_URL, {
+        method:'POST', headers:{ 'Content-Type':'application/json' },
         body: JSON.stringify({
-          cart: cart.map(i => ({ name:i.name, qty:i.qty, unit_price:i.unit_price, base_price:i.base_price, mods:i.mods||[], note:i.note||'' })),
-          customer_name: name.trim(), customer_phone: phone.trim(),
-          customer_email: email.trim(), delivery_address: addr.trim(),
-          fulfillment_type: type, order_note: note.trim(),
+          name: name.trim(), phone: phone.trim(),
+          email: email.trim(), type: type,
+          address: addr.trim(), note: note.trim(),
+          items: cart.map(i => ({ name:i.name, qty:i.qty, price:i.unit_price||i.base_price||0 })),
         }),
         signal: AbortSignal.timeout(20000),
       });
       const data = await res.json();
-      if (data.url) window.location.href = data.url;
-      else { setErr(data.error || 'Checkout failed. Please try again.'); setStep('review'); }
+      if (data.ok) {
+        setOrderNum(data.order_number || '');
+        setStep('done');
+      } else { setErr(data.error || 'Order failed. Please try again.'); setStep('review'); }
     } catch(e) { setErr(e.message || 'Network error — check your connection.'); setStep('review'); }
   };
 
@@ -854,6 +833,15 @@ function CheckoutFlow({ cart, posUrl, isDemo, onClose }) {
         </div>
         <div className="modal-body">
 
+          {step === 'done' && (
+            <div style={{ textAlign:'center', padding:'48px 24px' }}>
+              <div style={{ fontSize:64, marginBottom:16 }}>✅</div>
+              <h2 style={{ color:'#2d7a3a', marginBottom:8 }}>Order Placed!</h2>
+              <p style={{ fontSize:15, color:'#555', marginBottom:6 }}>Order # {orderNum}</p>
+              <p style={{ fontSize:13, color:'#777', marginBottom:24 }}>Ready for pickup in ~15–20 min. Call (856) 856-2202 with changes.</p>
+              <button className="btn-primary" onClick={onClose} style={{ width:'100%', padding:'14px', fontSize:16 }}>Done</button>
+            </div>
+          )}
           {step === 'paying' && (
             <div style={{ textAlign:'center', padding:'48px 0' }}>
               <div className="spinner" style={{ margin:'0 auto 20px', width:52, height:52 }}/>
