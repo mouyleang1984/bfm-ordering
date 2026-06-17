@@ -1023,21 +1023,7 @@ function App() {
     };
     let base = posUrl || '';
     let { mr, sr } = await tryFetch(base);
-    const isGHPages = window.location.origin.includes('github.io') || window.location.hostname.includes('riceplusgrill.com');
-    if (isGHPages && (mr.status === 'rejected' || !mr.value?.ok)) {
-      try {
-        const reg = await fetch('https://raw.githubusercontent.com/mouyleang1984/bfm-ordering/main/tunnel-url.txt?t=' + Date.now(), { cache:'no-store', signal: AbortSignal.timeout(5000) });
-        if (reg.ok) {
-          const freshUrl = (await reg.text()).trim();
-          if (freshUrl && freshUrl.startsWith('https://') && freshUrl !== posUrl) {
-            const retry = await tryFetch(freshUrl);
-            if (retry.mr.status === 'fulfilled' && retry.mr.value?.ok) {
-              setPosUrl(freshUrl); base = freshUrl; mr = retry.mr; sr = retry.sr;
-            }
-          }
-        }
-      } catch(_) {}
-    }
+    // Cloud mode: no tunnel fallback needed
     if (mr.status === 'fulfilled' && mr.value.ok) {
       setMenu(mr.value);
       if (mr.value.categories?.length) setActiveCat(mr.value.categories[0].id);
