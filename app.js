@@ -1071,16 +1071,16 @@ function App() {
           try {
             const cached = JSON.parse(localStorage.getItem('bfm_cloud_menu_cache') || 'null');
             if (cached && cached.menu) { setMenu(cached.menu); setActiveCat(cached.menu.categories[0]?.id); }
-            else setMenuErr('Menu unavailable. Please try again.');
-          } catch(_) { setMenuErr('Menu unavailable. Please try again.'); }
+            else setMenuErr("Menu unavailable. Please try again.");
+          } catch(_) { setMenuErr("Menu unavailable. Please try again."); }
         }
       } catch(e) {
         // Try cache fallback on error
         try {
           const cached = JSON.parse(localStorage.getItem('bfm_cloud_menu_cache') || 'null');
           if (cached && cached.menu) { setMenu(cached.menu); setActiveCat(cached.menu.categories[0]?.id); }
-          else setMenuErr('Couldn't reach store. Check connection and retry.');
-        } catch(_) { setMenuErr('Couldn't reach store. Check connection and retry.'); }
+          else setMenuErr("Couldn't reach store. Check connection and retry.");
+        } catch(_) { setMenuErr("Couldn't reach store. Check connection and retry."); }
       }
       setLoading(false);
       return;
