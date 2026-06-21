@@ -1,1 +1,1 @@
-https://domains-music-hose-cyber.trycloudflare.com
+https://api.trycloudflare.com
