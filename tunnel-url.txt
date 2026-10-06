@@ -1,1 +1,1 @@
-https://bbs-tattoo-introduction-developmental.trycloudflare.com
+https://api.trycloudflare.com
