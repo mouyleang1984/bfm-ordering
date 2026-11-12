@@ -1,1 +1,1 @@
-https://ready-consulting-shareware-surgery.trycloudflare.com
+https://api.trycloudflare.com
